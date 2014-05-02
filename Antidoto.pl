@@ -263,6 +263,8 @@ for my $container (@running_containers) {
 } # for my $container
 
 unless ($is_openvz_node) {
+    # Для отдельного сервера вполне посильная задача собрать ключевые суммы
+    $execute_full_hash_validation = 1;
     process_standard_linux_server();
 }
 
