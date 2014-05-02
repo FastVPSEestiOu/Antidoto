@@ -391,7 +391,26 @@ sub check_dirs_with_whitespaces {
         for my $file (@files) {
             # Хакеры очень любят пробельные имена, три точки или "скрытые" - начинающиеся с точки
             if ($file =~ /^\s+$/ or $file =~ /^\.{3,}$/ or $file =~ /^\./) {
-                warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
+
+                if (-f "$temp_folder/$file") {
+                    if ($ctid) {
+                        warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
+                    } else {
+                        warn "We found file with space in name in $file in folder: $temp_folder\n";
+                    }
+                }
+
+                # Мы реагируем только на НЕ пустые папки
+                if (-d "$temp_folder/$file") {
+                    my @folder_content = list_all_in_dir("$temp_folder/$file");
+                    if (scalar @folder_content > 0 ) {
+                        if ($ctid) {
+                            warn "We found not blank (@folder_content) drectory with space in name in CT $ctid $file in folder: $temp_folder\n";
+                        } else {
+                            warn "We found not blank (@folder_content) drectory with space in name in folder: $temp_folder\n";
+                        }
+                    }
+                }
             }
         }
     }
@@ -432,9 +451,26 @@ sub check_suid_exe {
     if ($is_suid or $is_sgid) {
         # Если бинарика нет в списке разрешенных, то, очевидно, стоит о нем упомянуть
         unless ( $binary_which_can_be_suid->{ $status->{fast_exe} } ) {
-            warn "This process $pid with exe $status->{fast_exe} from CTID $status->{envID} has binary with SUID ($is_suid) bit or SGID bit ($is_sgid) an it may be a VIRUS\n";
+            print_process_warning($pid, $status, "we found SUID ($is_suid) or SGID bit ($is_sgid) enabled, it's very dangerous");
         }
     }
+}
+
+# Печатаем уведомление о подозрительном процессе
+sub print_process_warning {
+    my $pid  = shift;
+    my $status = shift;
+    my $text = shift;
+
+    my $container_data = '';
+    if (defined($status->{envID}) && $status->{envID}) {
+        $container_data = " from CT: $status->{envID}";
+    }
+
+    print "We got warning about process" ."$container_data: '$text'\n" .
+        "pid: $pid name: $status->{Name} exe path: $status->{fast_exe} cwd: $status->{fast_cwd} " .
+        "uid: $status->{fast_uid} gid: $status->{fast_gid} cmd: $status->{fast_cmdline}\n";
+        
 }
 
 # Проверка на предмет загрузки того или иного сервиса с LD_PRELOAD
@@ -463,8 +499,7 @@ sub check_ld_preload  {
 
         my $ld_preload = $process_environment->{'LD_PRELOAD'};
         if (defined($ld_preload) && $ld_preload) {
-            #print Dumper($process_environment);
-            warn "This process $pid from CTID $status->{envID} loaded with LD_PRELOAD ($ld_preload) an it may be a VIRUS\n";
+            print_process_warning($pid, $status, "This process loaded with LD_PRELOAD ($ld_preload) an it may be a VIRUS");
         }
     }
 }
@@ -547,7 +582,7 @@ sub check_cmdline {
 
         # Если программа запущена от рута, то уведомлять о таком нет особого смысла, так как пользователи часто так делают да и руткиты могут прописаться в системные пути и не обязательно будут запущены вручную
         unless ($status->{fast_uid} == 0 && $status->{fast_gid} == 0) {
-            warn "Please check $pid (CT: $status->{envID}) with $status->{Name} with cmdline: $status->{fast_cmdline} manually because manually running software is too dangerous\n";
+            print_process_warning($pid, $status, "it running manually from NOT root user and it's very dangerous");
         }
     }
 }
@@ -569,7 +604,7 @@ sub check_exe_files_by_checksumm {
         
         if ($execute_full_hash_validation) {
             if (-e "$prefix/usr/bin/dpkg") {
-                warn "I can't find checksumm ($md5) for this binary file in packages database: $pid ctid: $status->{envID} $status->{Name} $status->{fast_exe}\n";
+                print_process_warning($pid, $status, "can't find checksumm ($md5) for this binary file in packages database. Please check it");
             } else {
                 # TODO:
                 # Это CentOS и как извлечь из него сигнатуры я пока совершенно не понимаю
@@ -578,7 +613,7 @@ sub check_exe_files_by_checksumm {
     }
 
     if ($virus_patterns->{$md5}) {
-        warn "IT'S 100% VIRUS!!!!! Please check CT: $status->{envID}\n";
+        print_process_warning($pid, $status, "it's 100% virus");
     }
 }
 
@@ -611,7 +646,7 @@ sub check_for_deleted_exe {
         # Тут бывают случаи: бинарик удален и приложение оставлено работать либо бинарник заменен, а софт работает со старого бинарика
         # Первое - скорее всего малварь, иначе - обновление софта без обновление либ
         unless (-e "$prefix/$status->{envID}/$exe_path") {
-            warn "Please check pid $pid $status->{Name} ASAP, it's probably malware: '$exe_path'\n";
+            print_process_warning($pid, $status, "Execuable file for this process was removed, it's looks like malware");
         }
     }
 }
@@ -670,7 +705,7 @@ sub check_process_open_fd {
                     #}
 
                     if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{local_port} }) {
-                        warn "We connected to DANGER ($port_description) port $udp_connection->{local_port} from pid: $pid\n";
+                        print_process_warning($pid, $status, "process connected to  DANGER ($port_description) port $udp_connection->{local_port}");
                     }
 
                 } else {
@@ -681,7 +716,7 @@ sub check_process_open_fd {
                     #}
 
                     if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{rem_port} }) {
-                        warn "We connected to DANGER ($port_description) port $udp_connection->{rem_port} from pid: $pid\n";
+                        print_process_warning($pid, $status, "process connected to DANGER ($port_description) port $udp_connection->{rem_port}");
                     }
                 }
             }
@@ -756,7 +791,7 @@ sub check_process_open_fd {
         my $number_of_connections = $connections_to_remote_servers->{ $remote_port_iteration };
 
         if (defined($number_of_connections) && $number_of_connections > 5) {    
-            warn "Please check pid $pid because it has $number_of_connections connections to $remote_port_iteration";
+            print_process_warning($pid, $status, "it has $number_of_connections connections to $remote_port_iteration. Looks like flood bot");
         }
     }      
 }
@@ -775,7 +810,11 @@ sub check_absent_login_information {
     # Debian: btmp
     # CentOS: wtmp
     unless (-e "$prefix/var/log/btmp" or -e "$prefix/var/log/wtmp") {
-        warn "CT $ctid is probably rooted because btmp/wtmp file is absent";
+        if ($ctid) {
+            warn "CT $ctid is probably rooted because btmp/wtmp file is absent";
+        } else {
+            warn "Server is probably rooted because btmp/wtmp file is absent";
+        }
     }
 }
 
@@ -865,15 +904,15 @@ sub check_32bit_software_on_64_bit_server {
     my $running_elf_file_type = get_binary_file_type_by_file_info_output($elf_file_info);
 
     unless ($running_elf_file_type) {
-        warn "Can't get file type for: $pid raw output: $running_elf_file_type\n";
+        print_process_warning($pid, $status, "Can't get file type for: $pid raw output: $running_elf_file_type");
     }
 
     if ($running_elf_file_type && $running_elf_file_type eq 'static') {
-        warn "Programm with pid $pid ($status->{Name}) is $running_elf_file_type please CHECK this file because statically linked files is very often uses by viruses\n";
+        print_process_warning($pid, $status, "binary file for this process is $running_elf_file_type please CHECK this file because statically linked files is very often used by viruses");
     }
 
     unless ($status->{fast_container_architecture} eq $running_elf_file_architecture) {
-        warn "Programm with pid $pid ($status->{Name}) is $running_elf_file_architecture on container with arch $status->{fast_container_architecture} Probably it's an malware! Please check! CT: $status->{envID}\n"
+        print_process_warning($pid, $status, "Programm is $running_elf_file_architecture on container with arch $status->{fast_container_architecture}  Probably it's an malware!");
     } 
  
 }
