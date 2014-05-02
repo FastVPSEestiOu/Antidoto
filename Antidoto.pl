@@ -19,12 +19,12 @@ my $blacklist_listen_ports = {
 };
 
 my $whitelist_listen_udp_ports = {
-    53  => 1,   # dns
-    111 => 1,   # portmap
-    123 => 1,   # ntp
-    137 => 1,   # nmbd
-    138 => 1,   # nmdb
-    11211 => 1, # memcached 
+    53    => 1,   # dns
+    111   => 1,   # portmap
+    123   => 1,   # ntp
+    137   => 1,   # nmbd
+    138   => 1,   # nmdb
+    11211 => 1,   # memcached 
 };
 
 my $whitelist_listen_tcp_ports = {
@@ -61,6 +61,7 @@ my $binary_which_can_be_suid = {
     '/usr/bin/sudo' => 1,
     '/usr/bin/ssh-agent' => 1,
     '/usr/bin/fping' => 1,
+    '/bin/mount' => 1,
 };
 
 # Паттерны найденных вирусов
@@ -77,10 +78,10 @@ my $virus_patterns = {
 
 # Список "хороших" открытых файлов, на которые не стоит даже реагировать
 my $good_opened_files = { 
-    '/dev/null' => 1,
+    '/dev/null'    => 1,
     '/dev/urandom' => 1,
-    '/dev/random' => 1,
-    '/dev/stdin' => 1,
+    '/dev/random'  => 1,
+    '/dev/stdin'   => 1,
 };
 
 # cwd, которые не стоит считать подозрительными
@@ -184,8 +185,20 @@ my $process_checks = {
     check_32bit_software_on_64_bit_server => \&check_32bit_software_on_64_bit_server,
     check_ld_preload => \&check_ld_preload,
     check_suid_exe => \&check_suid_exe,
+    check_process_parents => \&check_process_parents,
     # check_changed_proc_name => \&check_changed_proc_name,
     # check_cwd => \&check_cwd,
+};
+
+# Правила, описывающие поведение процессов
+my $processes_rules = {
+    'apache_debian' => {
+        'uid'         => 33,
+        'gid'         => 33,
+        'exe'         => "/usr/lib/apache2/mpm-prefork/apache2",
+        'name'        => "apache2",
+        'can_listen'  => [ '80', '81', '8080', '443' ],
+    }
 };
 
 # В случае OpenVZ ноды мы обходим все контейнеры
@@ -405,9 +418,9 @@ sub check_dirs_with_whitespaces {
                     my @folder_content = list_all_in_dir("$temp_folder/$file");
                     if (scalar @folder_content > 0 ) {
                         if ($ctid) {
-                            warn "We found not blank (@folder_content) drectory with space in name in CT $ctid $file in folder: $temp_folder\n";
+                            warn "We found not blank directory $file (@folder_content) with space in name in folder: $temp_folder in CT $ctid\n";
                         } else {
-                            warn "We found not blank (@folder_content) drectory with space in name in folder: $temp_folder\n";
+                            warn "We found not blank directory $file (@folder_content) with space in name in folder: $temp_folder\n";
                         }
                     }
                 }
@@ -471,8 +484,29 @@ sub print_process_warning {
         "pid: $pid name: $status->{Name}  uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
         "exe path: $status->{fast_exe}\n" .
         "cwd: $status->{fast_cwd}\n" .
-        "cmd: $status->{fast_cmdline}\n";
+        "cmd: $status->{fast_cmdline}\n\n";
         
+}
+
+# Проверка истинности процесса - тот ли он, за кого себя выдает 
+sub check_process_truth {
+    my ($pid, $status) = @_;
+
+    # TODO: должна осуществляться по правилам: $processes_rules
+}
+
+# Проверяем родителей процесса и если среди них есть Апач, то стоит этот случай исследовать
+sub check_process_parents {
+    my ($pid, $status) = @_;
+
+    my $parent_pid = $status->{PPid};
+
+    # Этот процесс запущен сам по себе, он нас не интересует, скорее всего он системный
+    if ($parent_pid == 1) {
+        return;
+    }
+    
+    # TODO: здесь нужно разместить код эвристической проверки 
 }
 
 # Проверка на предмет загрузки того или иного сервиса с LD_PRELOAD
@@ -647,7 +681,7 @@ sub check_for_deleted_exe {
 
         # Тут бывают случаи: бинарик удален и приложение оставлено работать либо бинарник заменен, а софт работает со старого бинарика
         # Первое - скорее всего малварь, иначе - обновление софта без обновление либ
-        unless (-e "$prefix/$status->{envID}/$exe_path") {
+        unless (-e "$prefix/$exe_path") {
             print_process_warning($pid, $status, "Execuable file for this process was removed, it's looks like malware");
         }
     }
