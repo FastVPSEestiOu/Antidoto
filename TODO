@@ -1,0 +1,39 @@
+# Can't parse tcp connection line:  522: 00000000:1622 00000000:0000 0A 00000000:00000000 00:00000000 00000000    -1        0 23890959 1 ffff880a5d74c100 99 0 0 10 -1  --- это на овз16
+# TODO: Добавить проверку lsattr ом всех бинарных файликов
+# TODO: пожалуй, более корректно парсить вот это дело: /proc/1045280/net/tcp
+# Закодить: http://www.stableit.ru/2009/12/linux_14.html
+# Вирусота: https://github.com/creaktive/psf
+# У virustotal есть API: https://www.virustotal.com/ru/about/
+# Также сделать спец анализатор сигнализирующий просто о процессах с кучей сокетов  (в основном Udp)
+# TODO: извлекать локальный айпи впса для корректного парсинга нетстата
+# TODO: все файлы с ppid apache (httpd) выводить как подозрительные! 
+# TODO: анализировать  smaps на предмет библитек загруженных в приложение и при этом удаленных с диска
+# TODO: а как хэшировать точно протрояненые либы??? 
+# TODO: 
+# Распространяется через puppet, в пакетах нету
+# Squid в принципе может слушать по UDP: http://linuxplayer.org/2012/02/why-squid-listen-on-high-udp-port-number
+
+# TODO: добавить проверку at spool:  at 1am tomorrow
+# Они создаются в папке:  /var/spool/cron/atjobs/a000010163c1ac
+
+
+# TODO: Добавить проверки, чтобы родительский процесс был не PHP 
+
+# TODO: добавить отображение, если есть ssh сессии активные из мухосранска
+# tcp        0      0 78.46.12.227:22         5.61.35.75:58492        ESTABLISHED 8652/sshd: andrey [
+# tcp        0    848 78.46.12.227:22         60.173.26.146:10697     ESTABLISHED 15051/sshd: [accept
+
+# Биндинг RPM для Perl
+# yum install -y perl-RPM2
+#use RPM2;
+# Список пакетов perl -e 'use RPM2;  my $db = RPM2->open_rpm_db();  my $i = $db->find_all_iter();  my @packages_list=();while (my $pkg = $i->next) {  print $pkg->as_nvre, "\n"; push @packages_list, $pkg->as_nvre }'
+
+
+# http://aide.sourceforge.net/ - контроль за состоянием файловой системы по сигнатурам
+# Генерация сигнатур для ClamAV: http://www.clamav.net/doc/webinars/Webinar-Alain-2009-03-04.pdf
+# TODO:
+# Также распортрошить unhide
+#
+# Как работать с prelink и как получить файл до prelink: https://access.redhat.com/site/solutions/75013
+# http://www.stableit.ru/2014/04/debian.html
+# TODO: почему-то на vzctl enter 1142 не видит прослушиваемый squid ом 3128й порт
