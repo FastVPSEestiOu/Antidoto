@@ -272,7 +272,6 @@ unless ($is_openvz_node) {
 sub process_standard_linux_server {
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
     if ($execute_full_hash_validation) {
-        $hash_lookup_for_all_binary_files = {};
         build_hash_for_all_binarys('');
     }
 
@@ -800,7 +799,7 @@ sub build_hash_for_all_binarys {
     my $ctid = shift;
 
     my $prefix = '';
-    if (defined($ctid)) {
+    if (defined($ctid) && $ctid) {
         $prefix = "/vz/root/$ctid";
     } else {
         $prefix = '';
