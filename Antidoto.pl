@@ -121,7 +121,7 @@ my $hash_lookup_for_all_binary_files = {
     'e62c0a2a25eeb622c1320db8f5d9039d' => '/usr/local/ispmgr/bin/ispmgr',
     '90899219b3e75b9d3064260c25270650' => '/usr/local/ispmgr/bin/ispmgr',
 
-    # А это Колю говнюк забил неверные чексуммы, issue уже передан в работу
+    # А это Коля забил неверные чексуммы, issue уже передан в работу
     '7241fcc1ce18d52e70810b65625bd61d' => '/opt/php5/bin/php',
     '5008e5e31d2f7efe5516f280fd13681b' => '/opt/php5/bin/php',
     '2c0144f5d550fa106081d1eaacbb033d' => '/opt/php5/bin/php',
@@ -137,13 +137,25 @@ my $hash_lookup_for_all_binary_files = {
 
 my $execute_full_hash_validation = 0;
 
+my $is_openvz_node = '';
+
+# Проверяем окружение, на котором мы работаем
+if (-e "/proc/user_beancounters" && -e "/proc/vz/fairsched") {
+    $is_openvz_node = 1; 
+}
+
 my @running_containers = ();
 
-# Если нам передали параметры командной строки, то сканируем переданный параметром контейнер
-if (scalar @ARGV > 0) {
-    @running_containers = @ARGV;
-} else {
-    @running_containers = get_running_containers_list();
+# Если мы работем на OpenVZ ноде, то есть возможность передать для сканирования лишь конкретный контейнер
+if ($is_openvz_node) {
+    
+    # Если нам передали параметры командной строки, то сканируем переданный параметром контейнер
+    if (scalar @ARGV > 0) {
+        @running_containers = @ARGV;
+    } else {
+        @running_containers = get_running_containers_list();
+    }
+
 }
 
 my $inode_to_udp_connecton_socket = parse_udp_connections();
@@ -155,26 +167,6 @@ my $users_which_cant_have_crontab = {
     'apache'   => 1,
 };
 
-
-# Проверяем на предмет наличия папок с пробельными именами в /tmp
-sub check_dirs_with_whitespaces {
-    my $ctid = shift;
-    
-    for my $temp_folder ("/vz/root/$ctid/tmp", "/vz/root/$ctid/var/tmp") {
-        my @files = list_all_in_dir($temp_folder); 
-
-        for my $file (@files) {
-            # Хакеры очень любят пробельные имена, три точки или "скрытые" - начинающиеся с точки
-            if ($file =~ /^\s+$/ or $file =~ /^\.{3,}$/ or $file =~ /^\./) {
-                warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
-            }
-        }
-    }
-}
-
-opendir my $dir, "/proc" or die "Can't open /proc";
-
-my $is_openvz_node = -e "/proc/user_beancounters";
 
 # Проверка конетейнера на предмет не порутали ли его
 my $global_check_functions = {
@@ -196,6 +188,7 @@ my $process_checks = {
     # check_cwd => \&check_cwd,
 };
 
+# В случае OpenVZ ноды мы обходим все контейнеры
 for my $container (@running_containers) {
     if ($container eq '1' or $container eq '50') {
         # Skip PCS special containers
@@ -207,7 +200,7 @@ for my $container (@running_containers) {
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
     if ($execute_full_hash_validation) {
         $hash_lookup_for_all_binary_files = {};
-        build_hash_for_all_binarys($container);
+        #### build_hash_for_all_binarys($container);
     }
 
     for my $check_function_name ( keys %$global_check_functions ) {
@@ -216,11 +209,10 @@ for my $container (@running_containers) {
         $sub_ref->($container);
     }
     
-
     # Получаем шаблон контейнера
     # TODO: обращаю внимание, что он может БЫТЬ НЕКОРРЕКТНЫЙ!!!
-    my $container_template = `/usr/sbin/vzlist -H -oostemplate $container`;
-    chomp $container_template;
+    # my $container_template = `/usr/sbin/vzlist -H -oostemplate $container`;
+    # chomp $container_template;
 
     my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
 
@@ -247,40 +239,12 @@ for my $container (@running_containers) {
         # Добавляем параметр "архитектура хост контейнера"
         $status->{fast_container_architecture} = $container_architecture;
 
-        # В случае, если все Uid/Gid у нас совпадают
-        $status->{fast_uid} = get_process_uid_or_gid('Uid', $status);
-        $status->{fast_gid} = get_process_uid_or_gid('Gid', $status);
-        
-        # также добавляем в статус фейковые параметры
-        my $cwd_path = "/proc/$pid/cwd";
-        my $exe_path = "/proc/$pid/exe";
-
-        $status->{fast_cwd} = readlink($cwd_path);
-        $status->{fast_exe} = readlink($exe_path);
-
-        # в exe может быть еще вот такое чудо:  ' (deleted)/opt/php5/bin/php-cgi'
-    
-        # Для кучи контейнеров cwd прописан вот так:
-        # /vz/root/54484 то есть с уровня ноды, а нам это не нужно
-        if ($status->{fast_cwd}) {
-            $status->{fast_cwd} =~ s#/vz/root/\d+/?#/#g;
-        }
-
-        if ($status->{fast_exe}) {
-            $status->{fast_exe} =~ s#/vz/root/\d+/?#/#g;
-        } 
-
-        my $cmdline = read_file_contents("/proc/$pid/cmdline");
+        $status = process_status($pid, $status);
 
         # Таким хитрым образом мы можем скрывать системные процессы ядра
-        unless (defined($cmdline)) {
+        unless (defined($status->{fast_cmdline})) {
             next;
-        }
-
-        $status->{fast_cmdline} = $cmdline;
-    
-        # Но /proc/$pid/cmdline интересен тем, что в нем используются разделители \0 и их нужно разделить на пробелы
-        $status->{fast_cmdline} =~ s/\0/ /g;
+        } 
 
         # Вызываем последовательно все указанные функции для каждого процесса
         for my $check_function_name ( keys %$process_checks ) {
@@ -298,16 +262,156 @@ for my $container (@running_containers) {
 
 } # for my $container
 
+unless ($is_openvz_node) {
+    process_standard_linux_server();
+}
+
+# Обработка обычного сервера
+sub process_standard_linux_server {
+    # Собираем хэш всех бинарных файлов контейнера для последующей валидации
+    if ($execute_full_hash_validation) {
+        $hash_lookup_for_all_binary_files = {};
+        build_hash_for_all_binarys('');
+    }
+
+    for my $check_function_name ( keys %$global_check_functions ) {
+        #print "We call function $check_function_name for $container\n";
+        my $sub_ref = $global_check_functions->{$check_function_name};
+        $sub_ref->();
+    }
+
+    my $init_elf_info = `cat /proc/1/exe | file -`;
+    chomp $init_elf_info;
+
+    my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
+
+    opendir my $proc_dir, "/proc" or die "Can't open /proc";
+    
+    PROCESSES_LOOP:
+    while (my $pid = readdir($proc_dir)) {
+        unless ($pid =~ m/^\d+$/) {
+            next PROCESSES_LOOP;
+        }
+  
+        # skip pseudo .. and .
+        if ($pid =~ m/^\.+$/) {
+            next PROCESSES_LOOP;
+        }
+ 
+        # Обязательно проверяем, чтобы псевдо-файл существовал
+        # Если его нету, то это означает ни что иное, как остановку процесса 
+        unless (-e "/proc/$pid") {
+            next;
+        }
+
+        my $status = get_proc_status($pid);
+
+        unless ($status) {
+            warn "Can't read status for process: $pid";
+            next;
+        }
+
+        # Добавляем параметр "архитектура хост контейнера"
+        $status->{fast_container_architecture} = $server_architecture;
+
+        $status = process_status($pid, $status);
+
+        # Таким хитрым образом мы можем скрывать системные процессы ядра
+        unless (defined($status->{fast_cmdline})) {
+            next;
+        }
+
+        # Вызываем последовательно все указанные функции для каждого процесса
+        for my $check_function_name ( keys %$process_checks ) {
+            # Если процесс перестал существовать во время проверки, то, увы, мы переходим к следующему
+            unless (-e "/proc/$pid") {
+                next PROCESSES_LOOP;
+            }
+
+            #print "We call function $check_function_name for process $pid\n";
+            my $sub_ref = $process_checks->{$check_function_name};
+            $sub_ref->($pid, $status);
+        }
+
+    }
+}
+
+sub process_status {
+    my $pid = shift;
+    my $status = shift;
+
+    # В случае, если все Uid/Gid у нас совпадают
+    $status->{fast_uid} = get_process_uid_or_gid('Uid', $status);
+    $status->{fast_gid} = get_process_uid_or_gid('Gid', $status);
+
+    # также добавляем в статус фейковые параметры: exe/cwd, так как они нам многократно пригодятся
+    my $cwd_path = "/proc/$pid/cwd";
+    my $exe_path = "/proc/$pid/exe";
+
+    $status->{fast_cwd} = readlink($cwd_path);
+    $status->{fast_exe} = readlink($exe_path);
+
+    # в exe может быть еще вот такое чудо:  ' (deleted)/opt/php5/bin/php-cgi'
+
+    # Для кучи контейнеров cwd прописан вот так /vz/root/54484 то есть с уровня ноды, а нам это не нужно,
+    # Для не openvz машин никаких последствий такое не несет
+    if ($status->{fast_cwd}) {
+        $status->{fast_cwd} =~ s#/vz/root/\d+/?#/#g;
+    }
+
+    if ($status->{fast_exe}) {
+        $status->{fast_exe} =~ s#/vz/root/\d+/?#/#g;
+    }
+
+    $status->{fast_cmdline} = read_file_contents("/proc/$pid/cmdline");
+
+    if ($status->{fast_cmdline}) {
+        # Но /proc/$pid/cmdline интересен тем, что в нем используются разделители \0 и их нужно разделить на пробелы
+        $status->{fast_cmdline} =~ s/\0/ /g;
+    }
+
+    return $status;
+}
+
+
+# Проверяем на предмет наличия папок с пробельными именами в /tmp
+sub check_dirs_with_whitespaces {
+    my $ctid = shift;
+
+    my $prefix = '';
+
+    if ($ctid) {
+        $prefix = "/vz/root/$ctid";
+    }    
+
+    for my $temp_folder ("$prefix/tmp", "$prefix/var/tmp") {
+        my @files = list_all_in_dir($temp_folder);
+
+        for my $file (@files) {
+            # Хакеры очень любят пробельные имена, три точки или "скрытые" - начинающиеся с точки
+            if ($file =~ /^\s+$/ or $file =~ /^\.{3,}$/ or $file =~ /^\./) {
+                warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
+            }
+        }
+    }
+}
+
 # Проверяем на предмет того, что бинарный файл имеет SUID флаг
 sub check_suid_exe {
     my ($pid, $status) = @_;
 
+    my $prefix = '';
+
+    if (defined($status->{envID}) && $status->{envID}) {
+        $prefix = "/vz/root/$status->{envID}";
+    }
+
     # Если файл не существует или удален, то тупо скипаем эту проверку
-    unless (-e "/vz/root/$status->{envID}/$status->{fast_exe}") {
+    unless (-e "$prefix/$status->{fast_exe}") {
         return;
     }  
 
-    my @stat_data = stat "/vz/root/$status->{envID}/$status->{fast_exe}";
+    my @stat_data = stat "$prefix/$status->{fast_exe}";
 
     my $mode = $stat_data[2];
 
@@ -354,7 +458,7 @@ sub check_ld_preload  {
         } 
 
         # Тут бывают вполне легальные использования, например: http://manpages.ubuntu.com/manpages/hardy/man1/authbind.1.html
-        # Такое говно используется в Bitrix (SIC) environment
+        # Такой "подход" используется в Bitrix (SIC) environment
 
         my $ld_preload = $process_environment->{'LD_PRELOAD'};
         if (defined($ld_preload) && $ld_preload) {
@@ -367,14 +471,20 @@ sub check_ld_preload  {
 sub check_user_crontabs {
     my $ctid = shift;
 
+    my $prefix = '';
+
+    if ($ctid) {
+        $prefix = "/vz/root/$ctid";
+    }    
+
     # debian / centos
-    for my $cron_folder ("/vz/root/$ctid/var/spool/cron/crontabs", "/vz/root/$ctid/var/spool/cron") {
+    for my $cron_folder ("$prefix/var/spool/cron/crontabs", "$prefix/var/spool/cron") {
 
         my @crontab_files = list_files_in_dir($cron_folder);
 
         for my $cron_file (@crontab_files) {
             if ($users_which_cant_have_crontab->{ $cron_file }) {
-                my @crontab_file_contents = read_file_contents_to_list("/vz/root/$ctid/var/spool/cron/crontabs/$cron_file");
+                my @crontab_file_contents = read_file_contents_to_list("$cron_folder/$cron_file");
 
                 # Фильтруем строки с комментариями
                 @crontab_file_contents = grep { if(!/^#/ and length ($_) > 0) {1;} else {0;}} @crontab_file_contents;
@@ -444,6 +554,12 @@ sub check_cmdline {
 sub check_exe_files_by_checksumm {
     my ($pid, $status) = @_;
 
+    my $prefix = '';;
+
+    if (defined($status->{envID}) && $status->{envID}) {
+        $prefix = "/vz/root/$status->{envID}";
+    }
+
     # рассчитаем md5, оно сработает даже для удаленного файла
     my $md5 = md5_file("/proc/$pid/exe");    
 
@@ -451,7 +567,7 @@ sub check_exe_files_by_checksumm {
     unless ($hash_lookup_for_all_binary_files->{$md5}) {
         
         if ($execute_full_hash_validation) {
-            if (-e "/vz/root/$status->{envID}/usr/bin/dpkg") {
+            if (-e "$prefix/usr/bin/dpkg") {
                 warn "I can't find checksumm ($md5) for this binary file in packages database: $pid ctid: $status->{envID} $status->{Name} $status->{fast_exe}\n";
             } else {
                 # TODO:
@@ -469,12 +585,17 @@ sub check_exe_files_by_checksumm {
 sub check_for_deleted_exe {
     my ($pid, $status) = @_;
 
+    my $prefix = '';;
+
+    if (defined($status->{envID}) && $status->{envID}) {
+        $prefix = "/vz/root/$status->{envID}";
+    }
+
     if ($status->{fast_exe} =~ m/deleted/) {
         my $exe_path = $status->{fast_exe};
         
         # TODO: выпилить обходники!
         # Чудеса нашей fastpanel, она не перезапускает свои CGI процессы, баг отрепорчен:
-        # https://jira.fastvps.ru/browse/FASTPANEL-556
         # Исклчюение для /var/www/admin/php-bin сделано по причине вот такого поведения CGI процессов FastPanel:
         # cwd -> /var/www/admin/php-bin
         # exe ->  (deleted)/tmp/rst16186.000510e0
@@ -488,7 +609,7 @@ sub check_for_deleted_exe {
 
         # Тут бывают случаи: бинарик удален и приложение оставлено работать либо бинарник заменен, а софт работает со старого бинарика
         # Первое - скорее всего малварь, иначе - обновление софта без обновление либ
-        unless (-e "/vz/root/$status->{envID}/$exe_path") {
+        unless (-e "$prefix/$status->{envID}/$exe_path") {
             warn "Please check pid $pid $status->{Name} ASAP, it's probably malware: '$exe_path'\n";
         }
     }
@@ -644,9 +765,15 @@ sub check_process_open_fd {
 sub check_absent_login_information {
     my $ctid = shift;
 
+    my $prefix = '';
+
+    if ($ctid) {
+        $prefix = "/vz/root/$ctid";
+    }
+
     # Debian: btmp
     # CentOS: wtmp
-    unless (-e "/vz/root/$ctid/var/log/btmp" or -e "/vz/root/$ctid/var/log/wtmp") {
+    unless (-e "$prefix/var/log/btmp" or -e "$prefix/var/log/wtmp") {
         warn "CT $ctid is probably rooted because btmp/wtmp file is absent";
     }
 }
@@ -670,14 +797,21 @@ my $get_debian_package_name_by_path = {
 sub build_hash_for_all_binarys {
     my $ctid = shift;
 
+    my $prefix = '';
+    if (defined($ctid)) {
+        $prefix = "/vz/root/$ctid";
+    } else {
+        $prefix = '';
+    }
+
     # Это дебиян и мы можем выполнить валидацию
-    if (-e "/vz/root/$ctid/usr/bin/dpkg") {
-        my @files = list_files_in_dir("/vz/root/$ctid/var/lib/dpkg/info");
+    if (-e "$prefix/usr/bin/dpkg") {
+        my @files = list_files_in_dir("$prefix/var/lib/dpkg/info");
         # Фильтруем лишь sums файлы
         @files = grep { /\.md5sums$/ } @files;
    
         for my $file (@files) {
-            my @file_content = read_file_contents_to_list("/vz/root/$ctid/var/lib/dpkg/info/$file");
+            my @file_content = read_file_contents_to_list("$prefix/var/lib/dpkg/info/$file");
             
             for my $line (@file_content) {
                 # TODO: улучшить фильтрацию
@@ -708,6 +842,12 @@ sub get_url_last_part {
 sub check_32bit_software_on_64_bit_server {
     my ($pid, $status) = @_;
 
+    my $prefix = '';;
+
+    if (defined($status->{envID}) && $status->{envID}) {
+        $prefix = "/vz/root/$status->{envID}";
+    }
+
     my $running_elf_file_architecture = '';
 
     # Мы делаем хак через pipe, чтобы file корректно работал с удаленными файлами и читал файл, а не симлинк
@@ -715,7 +855,7 @@ sub check_32bit_software_on_64_bit_server {
     chomp $elf_file_info;
 
     # Если файл не существует или удален, то тупо скипаем эту проверку
-    unless (-e "/vz/root/$status->{envID}/$status->{fast_exe}") {
+    unless (-e "$prefix/$status->{fast_exe}") {
         return;
     }
 
