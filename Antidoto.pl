@@ -940,7 +940,7 @@ sub get_url_basedir {
     
     my $result_url = join '/', @data;
 
-    warn "We put bug here: from $input_data to $result_url\n";
+    return $result_url;
 }
 
 # Проверим, чтобы все ПО запущенное на сервере было той же архитектуры, что и система на сервере
@@ -1066,29 +1066,10 @@ sub check_changed_proc_name {
 
         # Но тут может быть засада, в имени в cmdline - имя симлинка, а вот в exe имя бинарика
         if (-l "$prefix/$process_name_from_cmdline") {
-            my $real_progamm_path = readlink("$prefix/$process_name_from_cmdline");
+            my $real_progamm_path = readlink_deep("$prefix/$process_name_from_cmdline");
 
-            # TODO: сделать резольвер относительных симлинков
-            # Особо хитрые процессы типа Apache делают относительные симлинки!
-            # Symlink check: ../lib/apache2/mpm-prefork/apache2 /usr/lib/apache2/mpm-prefork/apache2
-            if ($real_progamm_path =~ /\.{2}/) {
-                $real_progamm_path =~ s#\.{2}#/usr#;
-            }
-
-            # TODO:
-            # Вообще резолвин полных путей до реального бинарика - задача не из простых!
-            # ls -la /usr/bin/java
-            # lrwxrwxrwx 1 root root 22 Jan  7  2013 /usr/bin/java -> /etc/alternatives/java
-            # ls -al /etc/alternatives/java
-            # lrwxrwxrwx 1 root root 39 Jan  7  2013 /etc/alternatives/java -> /usr/lib/jvm/jre-1.7.0-openjdk/bin/java
-
-            # python любит так:
-            # /usr/bin/python -> python2.6
-            unless ($real_progamm_path =~ m#^/#) {
-                # TODO: тут надо поставить префикс от $status->exe
-                my $exe_basename = get_url_basedir($status->{exe});
-                $real_progamm_path = "$exe_basename/$real_progamm_path";
-            }
+            # рекурсивный readlink нам выдает абсолютный путь на уровне ноды и его нужно подрезать
+            $real_progamm_path =~ s#/vz/root/\d+/+#/#g;
 
             # Даже если после разрешения симлинков они не совпадают, то увы =(
             if ($real_progamm_path ne $status->{fast_exe}) {
@@ -1433,6 +1414,49 @@ sub parse_tcp_connections {
 
     return $tcp_connections;
 }
+
+
+# Улучшенная версия readlink, которая обходит пути до упора, пока не найдем искомый файл
+sub readlink_deep {
+    my $path = shift;
+
+    # Если это не симлинк, то вернем сам путь и наша задача решена
+    unless (-l $path) {
+        return $path;
+    }    
+
+    my $target = readlink($path);
+
+    # Рекурсия здесь для таких случаев:
+    # /usr/bin/java -> /etc/alternatives/java
+    # /etc/alternatives/java -> /usr/lib/jvm/jre-1.7.0-openjdk/bin/java
+
+    if ($target) {
+        # Получим базовое имя "все до последнего компонента пути"
+        my $path_basename = get_url_basedir($path);
+
+        # /usr/sbin/apache2 -> ../lib/apache2/mpm-prefork/apache2
+        if ($target =~ m/^\.{2}/) {
+            my $get_up_folder = get_url_basedir($path_basename);
+
+            # заменяем две точки на папку уровнем выше 
+            $target =~ s/^\.{2}/$get_up_folder/;
+
+            return readlink_deep($target);
+        }    
+ 
+        #  /usr/bin/python -> python2.6
+        unless ($target =~ m#^/#) {
+            return readlink_deep("$path_basename/$target"); 
+        }    
+
+        return readlink_deep($target);
+    } else {
+        # Если не смогли перейти по ссылке, то возвращаемся к исходному файлу
+        return $path;
+    }    
+}
+
 
 # Copy & paste from: http://cpansearch.perl.org/src/SALVA/Linux-Proc-Net-TCP-0.05/lib/Linux/Proc/Net/TCP.pm
 sub _hex2ip {
