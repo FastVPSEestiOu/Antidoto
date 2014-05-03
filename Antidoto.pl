@@ -1254,12 +1254,12 @@ sub get_init_pid_for_container {
 
 # TODO: добавить поддержку udp6
 sub parse_udp_connections {
-    my $udp_path = "/proc/net/udp";
-
     # Тут хэш: inode => вся инфа о коннекте
     my $udp_connections = {};
     
-    my $res = open my $fl, "<", $udp_path;
+    for my $udp_file_stat_name ("/proc/net/udp", "/proc/net/udp6") {
+
+    my $res = open my $fl, "<", $udp_file_stat_name;
 
     unless ($res) {
         return $udp_connections; 
@@ -1279,8 +1279,8 @@ sub parse_udp_connections {
 
         my @matches = $line =~ m/
             ^\s*(\d+):\s+                # number of record
-            ([\dA-F]{8}):([\dA-F]{4})\s+ # local_address
-            ([\dA-F]{8}):([\dA-F]{4})\s+ # remote_address
+            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
+            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # remote_address 8 - ipv4, 32 - ipv6
             ([\dA-F]{2})\s+              # st
             ([\dA-F]{8}):([\dA-F]{8})\s+ # tx_queue, rx_queue
             (\d+):([\dA-F]{8})\s+        # tr and tm->when
@@ -1312,6 +1312,9 @@ sub parse_udp_connections {
 
 
         $udp_connections->{ $udp_connection->{'inode'} } = $udp_connection;
+    }
+
+        close $fl;
     }
 
     #print Dumper($udp_connections);
