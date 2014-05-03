@@ -366,6 +366,7 @@ sub process_standard_linux_server {
     }
 }
 
+# Обработать статус процесса, добавив в него ряд полезных пунктов
 sub process_status {
     my $pid = shift;
     my $status = shift;
@@ -820,6 +821,9 @@ sub check_process_open_fd {
                 }
             }
     
+            if (!defined ($standard_connection) && !defined($udp_connection)) {
+                warn "Can't find any info about socket with inode: $inode for process with pid: $pid\n";            
+            }
 
             next FILE_DESCRIPTORS_LOOP;
         }
