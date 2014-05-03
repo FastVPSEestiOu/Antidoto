@@ -5,6 +5,6 @@ Linux antimalware and antirootkit tool
 
 Hot to run it:
 ```bash
-wget https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl
+wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl -OAntidoto.pl
 perl Antidoto.pl
 ```
