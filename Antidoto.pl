@@ -186,7 +186,7 @@ my $process_checks = {
     check_ld_preload => \&check_ld_preload,
     check_suid_exe => \&check_suid_exe,
     check_process_parents => \&check_process_parents,
-    # check_changed_proc_name => \&check_changed_proc_name,
+    check_changed_proc_name => \&check_changed_proc_name,
     # check_cwd => \&check_cwd,
 };
 
@@ -484,7 +484,7 @@ sub print_process_warning {
         "pid: $pid name: $status->{Name}  uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
         "exe path: $status->{fast_exe}\n" .
         "cwd: $status->{fast_cwd}\n" .
-        "cmd: $status->{fast_cmdline}\n\n";
+        "cmdline: $status->{fast_cmdline}\n\n";
         
 }
 
@@ -913,6 +913,20 @@ sub get_url_last_part {
     return $data[-1]; 
 }
 
+# Вернуть папку переданного пути
+sub get_url_basedir {
+    my $input_data = shift;
+
+    my @data = split '/', $input_data;
+
+    # Отбрасываем последний компонент
+    pop @data;
+    
+    my $result_url = join '/', @data;
+
+    warn "We put bug here: from $input_data to $result_url\n";
+}
+
 # Проверим, чтобы все ПО запущенное на сервере было той же архитектуры, что и система на сервере
 # Также проверяем на тип Elf файла и сообщаем о любом статически линкованном ПО
 sub check_32bit_software_on_64_bit_server {
@@ -984,18 +998,102 @@ sub get_binary_file_type_by_file_info_output {
     }
 }    
 
+# Проверяем, а не поменял ли процесс свое имя по тем или иным причинам, так часто любят делать malware
 sub check_changed_proc_name {
     my ($pid, $status) = @_;
+
+    my $prefix = '';
+
+    if (defined($status->{envID}) && $status->{envID}) {
+        $prefix = "/vz/root/$status->{envID}";
+    }
 
     unless ($status->{fast_exe} && $status->{Name} ) {
         warn "Can't get process names\n";
         return;
-    }   
+    }
 
-    my $last_part = get_url_last_part( $status->{fast_exe} );    
+    # TODO:
+    # bash на centos5 любит делать себе вот такое имя процеса: 
+    # exe path: /bin/bash
+    # cmdline: -bash 
 
-    unless ($status->{Name} eq $last_part) {
-        print "pid: $pid process name from status: $status->{Name} is not equal to name from exe: $last_part\n";
+    my $process_name_from_cmdline = '';
+    
+    # Если у нас есть пробелы, то мы можем извлечь имя команды, оно отделяется либо пробелами либо двоеточием
+    if ($status->{fast_cmdline} =~ /[\s:]/) {
+        $process_name_from_cmdline = (split /[\s:]/, $status->{fast_cmdline})[0];
+    } else {
+
+    }
+
+    # в ps aux как раз отображается cmdline, поэтому его часто и подделывают, так что его и првоеряем :)
+
+    # Системные (и не только) процессы любят делать вот так
+    #exe path: /sbin/syslogd
+    #cmdline: syslogd -m 0 
+
+    unless ($status->{fast_cmdline}) {
+        warn "Process $pid has blank cmdline and it's very strange! Please check!";
+    }
+
+    my $programm_name_possible_faked = '';
+
+    if ($status->{fast_cmdline} =~ m#^/#) {
+        # Если в cmdline не красивое имя процесса, а путь до бинарика, то тут проверки очень простые
+
+        # Тут хитрая сиутация возможна с симлинками, например:
+        # exe path: /usr/lib/apache2/mpm-prefork/apache2
+        # cmdline: /usr/sbin/apache2 -k start 
+        # ls -al /usr/sbin/apache2
+        # lrwxrwxrwx 1 root root 34 Sep 10  2013 /usr/sbin/apache2 -> ../lib/apache2/mpm-prefork/apache2
+
+        # Но тут может быть засада, в имени в cmdline - имя симлинка, а вот в exe имя бинарика
+        if (-l "$prefix/$process_name_from_cmdline") {
+            my $real_progamm_path = readlink("$prefix/$process_name_from_cmdline");
+
+            # TODO: сделать резольвер относительных симлинков
+            # Особо хитрые процессы типа Apache делают относительные симлинки!
+            # Symlink check: ../lib/apache2/mpm-prefork/apache2 /usr/lib/apache2/mpm-prefork/apache2
+            if ($real_progamm_path =~ /\.{2}/) {
+                $real_progamm_path =~ s#\.{2}#/usr#;
+            }
+
+            # TODO:
+            # Вообще резолвин полных путей до реального бинарика - задача не из простых!
+            # ls -la /usr/bin/java
+            # lrwxrwxrwx 1 root root 22 Jan  7  2013 /usr/bin/java -> /etc/alternatives/java
+            # ls -al /etc/alternatives/java
+            # lrwxrwxrwx 1 root root 39 Jan  7  2013 /etc/alternatives/java -> /usr/lib/jvm/jre-1.7.0-openjdk/bin/java
+
+            # python любит так:
+            # /usr/bin/python -> python2.6
+            unless ($real_progamm_path =~ m#^/#) {
+                # TODO: тут надо поставить префикс от $status->exe
+                my $exe_basename = get_url_basedir($status->{exe});
+                $real_progamm_path = "$exe_basename/$real_progamm_path";
+            }
+
+            # Даже если после разрешения симлинков они не совпадают, то увы =(
+            if ($real_progamm_path ne $status->{fast_exe}) {
+                #warn "####Symlink check: $real_progamm_path $status->{fast_exe}\n";
+                #$programm_name_possible_faked = 1;
+                return print_process_warning($pid, $status, "process name from exe $status->{fast_exe} is not match to expanded from symlink: $real_progamm_path");
+            }  
+        } else {
+            if ($process_name_from_cmdline ne $status->{fast_exe}) {
+                $programm_name_possible_faked = 1;
+            }
+        }
+    } else {
+        # Если даже кусочка имени процесса нету в cmdline, то это зловред 
+        unless ($status->{fast_exe} =~ m/$process_name_from_cmdline/) {
+            $programm_name_possible_faked = 1;
+        }
+    }
+
+    if ($programm_name_possible_faked) {
+        print_process_warning($pid, $status, "process name from cmdline $process_name_from_cmdline is not equal to name from exe: $status->{fast_exe}");
     }
 }
 
