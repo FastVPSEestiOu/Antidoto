@@ -299,6 +299,8 @@ sub process_standard_linux_server {
 
     my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
 
+    my $it_is_openvz_container = -e "/proc/user_beancounters";
+
     opendir my $proc_dir, "/proc" or die "Can't open /proc";
     
     PROCESSES_LOOP:
@@ -323,6 +325,20 @@ sub process_standard_linux_server {
         unless ($status) {
             warn "Can't read status for process: $pid";
             next;
+        }
+
+        # В случае, если со стороны ноды имеется vzctl, который инжектирован в пространство контейнера,
+        # то его exe файлы и прочее прочесть нельзя - исключаем его из рассмотрения
+        # stat /proc/14865/exe
+        # File: `/proc/14865/exe'stat: cannot read symbolic link `/proc/14865/exe': Permission denied
+        if ($it_is_openvz_container && $status->{Name} eq 'vzctl') {
+            my @stat_data = stat "/proc/$pid/exe";
+           
+            if (scalar @stat_data == 0 && $! eq 'Permission denied') {
+                # Исключаем его как процесс с ноды
+                next PROCESSES_LOOP;
+            } 
+            # И если при stat мы получаем ошибку доступа, то это правда vzctl с ноды
         }
 
         # Добавляем параметр "архитектура хост контейнера"
