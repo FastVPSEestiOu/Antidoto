@@ -1321,8 +1321,6 @@ sub parse_udp_connections {
 
 # TODO: добавить поддержку udp6
 sub parse_tcp_connections {
-    my $tcp_path = "/proc/net/tcp";
-
     # Спец массив для отображения человеко-понятных статусов
     # http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/include/net/tcp_states.h?id=HEAD
     my @tcp_status_names = (
@@ -1342,12 +1340,13 @@ sub parse_tcp_connections {
 
     # Тут хэш: inode => вся инфа о коннекте
     my $tcp_connections = {};
-    
-    my $res = open my $fl, "<", $tcp_path;
+   
+    for my $tcp_file_stat_name ("/proc/net/tcp", "/proc/net/tcp6") {
+        my $res = open my $fl, "<", $tcp_file_stat_name;
 
-    unless ($res) {
-        return $tcp_connections; 
-    }
+        unless ($res) {
+            return $tcp_connections; 
+        }
 
     for my $line (<$fl>) {
         my $tcp_connection = {};
@@ -1366,8 +1365,8 @@ sub parse_tcp_connections {
         # 5977: 33DD242E:0050 859E2459:CF01 01 00000000:00000000 00:1AD7F29ABCA 00000000    33        0 3912372353 1 ffff882be39ec400 179 3 9 10 - 
         my @matches = $line =~ m/
             ^\s*(\d+):\s+                # number of record
-            ([\dA-F]{8}):([\dA-F]{4})\s+ # local_address
-            ([\dA-F]{8}):([\dA-F]{4})\s+ # remote_address
+            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
+            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # remote_address 8 - ipv4, 32 - ipv6
             ([\dA-F]{2})\s+              # st
             ([\dA-F]{8}):([\dA-F]{8})\s+ # tx_queue, rx_queue
             (\d+):([\dA-F]{8,11})\s+     # tr and tm->when
@@ -1404,7 +1403,7 @@ sub parse_tcp_connections {
             warn "Can't get correct connection status for: $tcp_connection->{st}\n";
         }
 
-        #print Dumper($tcp_connection);
+        # print Dumper($tcp_connection);
     
         if ( $tcp_connections->{ $tcp_connection->{'inode'} }  ) {
             # TODO: почему-то inode люто дублируются!!!!!!!!!!!!!! Надо разобраться
@@ -1414,6 +1413,9 @@ sub parse_tcp_connections {
         }
 
         $tcp_connections->{ $tcp_connection->{'inode'} } = $tcp_connection;
+    }
+
+        close $fl;
     }
 
     return $tcp_connections;
