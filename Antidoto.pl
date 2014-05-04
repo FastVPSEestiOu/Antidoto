@@ -232,11 +232,9 @@ for my $container (@running_containers) {
 
     # Тут мы читаем псевдо-файла /proc/CT_INIT_PID/net/*, так как там содержатся все соединения для данного контейнера,
     # а вовсе не соединения для данного процесса
-    $connections->{tcp}  = parse_tcp_connections("/proc/$container_init_process_pid_on_node/net/tcp",
-        "/proc/$container_init_process_pid_on_node/net/tcp6");
-    $connections->{udp}  = parse_udp_connections("/proc/$container_init_process_pid_on_node/net/udp",
-        "/proc/$container_init_process_pid_on_node/net/udp6");
-    $connections->{unix} = parse_unix_connections("/proc/$container_init_process_pid_on_node/net/unix");
+    $connections->{tcp}  = parse_tcp_connections($container_init_process_pid_on_node);
+    $connections->{udp}  = parse_udp_connections($container_init_process_pid_on_node);
+    $connections->{unix} = parse_unix_connections($container_init_process_pid_on_node);
 
     my $inode_to_socket = {};
 
@@ -333,6 +331,8 @@ sub process_standard_linux_server {
 
     my $inode_to_socket = {};
 
+    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
+    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
     for my $proto ('tcp', 'udp', 'unix') {
         for my $item (@{ $connections->{$proto} })  {
             if ($inode_to_socket->{ $proto }->{ $item->{inode } }) { 
@@ -867,6 +867,8 @@ sub check_process_open_fd {
 
     my $process_connections = get_process_connections($pid, $inode_to_socket);
 
+    #print Dumper($process_connections);
+
     CONNECTIONS_LOOP:
     for my $connection (@$process_connections) {
         if ($connection->{type} eq 'unknown') {
@@ -1331,9 +1333,13 @@ sub get_init_pid_for_container {
 }
 
 sub parse_udp_connections {
-    my @files_for_reading = @_;
+    my $pid = shift;
 
-    unless (@files_for_reading) {
+    my @files_for_reading = ();
+
+    if (defined($pid) && $pid) {
+        @files_for_reading = ("/proc/$pid/net/udp", "/proc/$pid/net/udp6"); 
+    } else {
         @files_for_reading = ("/proc/net/udp", "/proc/net/udp6");
     }
 
@@ -1404,7 +1410,15 @@ sub parse_udp_connections {
 }
 
 sub parse_unix_connections {
-    my $path = '/proc/net/unix';
+    my $pid = shift;
+
+    my $path = '';
+    if (defined($pid) && $pid) {
+        $path = "/proc/$pid/net/unix";
+    } else {
+        $path = '/proc/net/unix';
+    }
+
     my $unix_connections = [];
 
     my $res = open my $fl, "<", $path;
@@ -1452,9 +1466,13 @@ sub parse_unix_connections {
 }
 
 sub parse_tcp_connections {
-    my @files_for_reading = @_;
+    my $pid = shift;
+    
+    my @files_for_reading = ();
 
-    unless (@files_for_reading) {
+    if (defined($pid) && $pid) {
+        @files_for_reading = ("/proc/$pid/net/tcp", "/proc/$pid/net/tcp6");
+    } else {
         @files_for_reading = ("/proc/net/tcp", "/proc/net/tcp6");
     }
 
