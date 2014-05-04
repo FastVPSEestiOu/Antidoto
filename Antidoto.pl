@@ -159,8 +159,9 @@ if ($is_openvz_node) {
 
 }
 
-my $inode_to_udp_connecton_socket = parse_udp_connections();
-my $inode_to_tcp_connection_socket = parse_tcp_connections();
+my $inode_to_udp_connecton_socket   = parse_udp_connections();
+my $inode_to_tcp_connection_socket  = parse_tcp_connections();
+my $inode_to_unix_connection_socket = parse_unix_connections();
 
 # Список системных пользователей, которые в нормальных условиях не должны иметь свой crontab в /var/spool/cron/crontabs
 my $users_which_cant_have_crontab = { 
@@ -750,6 +751,9 @@ sub check_process_open_fd {
 
             my $standard_connection = $inode_to_tcp_connection_socket->{ $inode };
 
+            # Мы их толком не анализируем, а просто проверяем валидность поиска соединений по номеру inode
+            my $unix_connection = $inode_to_unix_connection_socket->{ $inode };
+
             if (defined($udp_connection) && $udp_connection) {
                 if ( ($udp_connection->{local_address} eq '0.0.0.0' or $udp_connection->{local_address} =~ /^127\.0\.0\.\d+$/) or $udp_connection->{rem_address} eq '0.0.0.0') {
                     # listen
@@ -821,8 +825,8 @@ sub check_process_open_fd {
                 }
             }
     
-            if (!defined ($standard_connection) && !defined($udp_connection)) {
-                warn "Can't find any info about socket with inode: $inode for process with pid: $pid\n";            
+            if (!defined ($standard_connection) && !defined($udp_connection) && !defined($unix_connection)) {
+                warn "Can't find any info about socket with inode: $inode for process with pid: $pid in tcp, udp and unix domain connections\n";            
             }
 
             next FILE_DESCRIPTORS_LOOP;
@@ -1321,6 +1325,53 @@ sub parse_udp_connections {
     return $udp_connections;
 }
 
+sub parse_unix_connections {
+    my $path = '/proc/net/unix';
+    my $unix_connections = {};
+
+    my $res = open my $fl, "<", $path;
+    unless ($res) {
+        return $unix_connections;
+    }
+
+    for my $line (<$fl>) {
+        chomp $line;
+
+        if ($line =~ m/^\s*Num\s+RefCount\s+Protocol/) {
+            next;
+        }
+
+        my $unix_connection = {};
+
+        # Num       RefCount Protocol Flags    Type St Inode Path
+        # ffff880184824100: 00000002 00000000 00000000 0002 01 3492802135 @/org/kernel/udev/udevd
+        # ffff8807afa05600: 00000002 00000000 00000000 0002 01 3937453950
+        # ffff880c35b6cbc0: 0000000C 00000000 00000000 0002 01 10609 /dev/log
+        my @matches = $line =~ m/
+            ^\s*
+            ([\dA-F]{16}):\s+    # Num
+            ([\dA-F]{8})\s+      # RefCount
+            (\d{8})\s+           # Protocol
+            (\d{8})\s+           # Flags
+            (\d{4})\s+           # Type
+            (\d{2})\s+           # St
+            (\d+)\s*             # Inode
+            (.*?)$               # Path
+        /xi;
+
+        if (scalar @matches == 0) {
+            warn "Can't parse unix connection line: $line\n";
+            next;
+        }
+
+        @$unix_connection{ 'num', 'refcount', 'protocol', 'flags', 'type', 'st', 'inode', 'path' } = @matches;
+        $unix_connections-> { $unix_connection->{inode} } = $unix_connection;
+    }
+
+    close $fl;
+
+    return $unix_connections;
+}
 
 # TODO: добавить поддержку udp6
 sub parse_tcp_connections {
