@@ -207,6 +207,11 @@ for my $container (@running_containers) {
 
     my @ct_processes_pids = read_file_contents_to_list("/proc/vz/fairsched/$container/tasks");
 
+    my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
+
+    my $connections = read_all_namespace_connections($container_init_process_pid_on_node);
+    my $inode_to_socket = build_inode_to_socket_lookup_table($connections);
+
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
     if ($execute_full_hash_validation) {
         $hash_lookup_for_all_binary_files = {};
@@ -218,37 +223,18 @@ for my $container (@running_containers) {
         my $sub_ref = $global_check_functions->{$check_function_name};
         $sub_ref->($container);
     }
-    
+   
+    check_orphan_connections($container, $inode_to_socket);
+
     # Получаем шаблон контейнера
     # TODO: обращаю внимание, что он может БЫТЬ НЕКОРРЕКТНЫЙ!!!
     # my $container_template = `/usr/sbin/vzlist -H -oostemplate $container`;
     # chomp $container_template;
 
-    my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
-
     my @container_ips = get_ips_for_container($container);
-
-    my $connections = {};
 
     # Тут мы читаем псевдо-файла /proc/CT_INIT_PID/net/*, так как там содержатся все соединения для данного контейнера,
     # а вовсе не соединения для данного процесса
-    $connections->{tcp}  = parse_tcp_connections($container_init_process_pid_on_node);
-    $connections->{udp}  = parse_udp_connections($container_init_process_pid_on_node);
-    $connections->{unix} = parse_unix_connections($container_init_process_pid_on_node);
-
-    my $inode_to_socket = {};
-
-    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
-    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
-    for my $proto ('tcp', 'udp', 'unix') {
-        for my $item (@{ $connections->{$proto} })  {
-            if ($inode_to_socket->{ $proto }->{ $item->{inode } }) {
-                warn "duplicate inode $item->{inode}\n";
-            }
-
-            $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
-        }    
-    }
 
     my $init_elf_info = `cat /proc/$container_init_process_pid_on_node/exe | file -`;
     chomp $init_elf_info;
@@ -276,7 +262,7 @@ for my $container (@running_containers) {
         # Добавляем псевдо параметр - local_ips, это локальные IP контейнера
         $status->{fast_local_ips} = [ @container_ips ];
 
-        $status = process_status($pid, $status);
+        $status = process_status($pid, $status, $inode_to_socket);
 
         # Таким хитрым образом мы можем скрывать системные процессы ядра
         unless (defined($status->{fast_cmdline})) {
@@ -292,7 +278,7 @@ for my $container (@running_containers) {
  
             #print "We call function $check_function_name for process $pid\n";
             my $sub_ref = $process_checks->{$check_function_name};
-            $sub_ref->($pid, $status, $inode_to_socket);
+            $sub_ref->($pid, $status);
         }
      
     }
@@ -307,6 +293,9 @@ unless ($is_openvz_node) {
 
 # Обработка обычного сервера
 sub process_standard_linux_server {
+    my $connections = read_all_namespace_connections();
+    my $inode_to_socket = build_inode_to_socket_lookup_table($connections);
+
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
     if ($execute_full_hash_validation) {
         build_hash_for_all_binarys('');
@@ -318,30 +307,13 @@ sub process_standard_linux_server {
         $sub_ref->();
     }
 
+    check_orphan_connections(0, $inode_to_socket);
+
     my $init_elf_info = `cat /proc/1/exe | file -`;
     chomp $init_elf_info;
 
     # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
     # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
-
-    my $connections = {};
-    $connections->{tcp}  = parse_tcp_connections();
-    $connections->{udp}  = parse_udp_connections();
-    $connections->{unix} = parse_unix_connections();
-
-    my $inode_to_socket = {};
-
-    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
-    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
-    for my $proto ('tcp', 'udp', 'unix') {
-        for my $item (@{ $connections->{$proto} })  {
-            if ($inode_to_socket->{ $proto }->{ $item->{inode } }) { 
-                warn "duplicate inode $item->{inode}\n";
-            }    
-
-            $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
-        }    
-    }
 
     my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
 
@@ -390,7 +362,7 @@ sub process_standard_linux_server {
         # Добавляем параметр "архитектура хост контейнера"
         $status->{fast_container_architecture} = $server_architecture;
 
-        $status = process_status($pid, $status);
+        $status = process_status($pid, $status, $inode_to_socket);
 
         # Таким хитрым образом мы можем скрывать системные процессы ядра
         unless (defined($status->{fast_cmdline})) {
@@ -446,6 +418,7 @@ sub get_ips_for_container {
 sub process_status {
     my $pid = shift;
     my $status = shift;
+    my $inode_to_socket = shift;
 
     # В случае, если все Uid/Gid у нас совпадают
     $status->{fast_uid} = get_process_uid_or_gid('Uid', $status);
@@ -476,6 +449,9 @@ sub process_status {
         # Но /proc/$pid/cmdline интересен тем, что в нем используются разделители \0 и их нужно разделить на пробелы
         $status->{fast_cmdline} =~ s/\0/ /g;
     }
+
+    # Получаем удобный для обработки список дескрипторов (файлов+сокетов) пороцесса
+    $status->{fast_fds} = get_process_connections($pid, $inode_to_socket);
 
     return $status;
 }
@@ -793,7 +769,7 @@ sub md5_file {
     return $result;
 }
 
-# Получить все сетевые соединения контейнера
+# Получить все сетевые соединения процесса
 sub get_process_connections {
     my $pid = shift;
     my $inode_to_socket = shift;
@@ -853,9 +829,9 @@ sub get_process_connections {
     return $process_connections;
 }
 
-
+# Обойдем все открыте соединения процессов и оценим их состояние
 sub check_process_open_fd {
-    my ($pid, $status, $inode_to_socket) = @_;
+    my ($pid, $status) = @_;
 
     # Хэш, в котором будет храниться число соединений на удаленный сервер от процесса на определенный порт
     my $connections_to_remote_servers = {};
@@ -865,7 +841,7 @@ sub check_process_open_fd {
 
     }
 
-    my $process_connections = get_process_connections($pid, $inode_to_socket);
+    my $process_connections = $status->{fast_fds};
 
     #print Dumper($process_connections);
 
@@ -897,7 +873,7 @@ sub check_process_open_fd {
                 my $local_address = $tcp_connection->{local_address};
 
                 # Если тот или иной софт забинден на локалхост, то он нас не интересует
-                if ($local_address eq '127.0.0.1') {
+                if (is_loopback_address($local_address)) {
                     next CONNECTIONS_LOOP;
                 }
 
@@ -911,8 +887,8 @@ sub check_process_open_fd {
                 my $remote_host = $tcp_connection->{rem_address};
 
                 # Это может быть внутренее соединение, которое не интересно нам при анализе
-                if ($remote_host eq '127.0.0.1') {
-                    next FILE_DESCRIPTORS_LOOP;
+                if (is_loopback_address($remote_host)) {
+                    next CONNECTIONS_LOOP;
                 }
 
                 $connections_to_remote_servers->{ $remote_port } ++; 
@@ -1332,6 +1308,7 @@ sub get_init_pid_for_container {
     return $container_init_process_pid_on_node;
 }
 
+# Парсим файлы из /proc с целью извлечь всю информацию о соединениях
 sub parse_udp_connections {
     my $pid = shift;
 
@@ -1346,61 +1323,59 @@ sub parse_udp_connections {
     my $udp_connections = [];
     
     for my $udp_file_stat_name (@files_for_reading) {
+        my $res = open my $fl, "<", $udp_file_stat_name;
 
-    my $res = open my $fl, "<", $udp_file_stat_name;
-
-    unless ($res) {
-        return $udp_connections; 
-    }
-
-    for my $line (<$fl>) {
-        my $udp_connection = {};
-
-        chomp $line;
-        #  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops             
-        #    1: 00000000:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 3941318127 2 ffff880284682bc0 0     
-    
-        # Skip header 
-        if ($line =~ /^\s+sl\s+local_address/) {
-            next;
+        unless ($res) {
+            return $udp_connections; 
         }
 
-        my @matches = $line =~ m/
-            ^\s*(\d+):\s+                # number of record
-            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
-            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # remote_address 8 - ipv4, 32 - ipv6
-            ([\dA-F]{2})\s+              # st
-            ([\dA-F]{8}):([\dA-F]{8})\s+ # tx_queue, rx_queue
-            (\d+):([\dA-F]{8})\s+        # tr and tm->when
-            ([\dA-F]{8})\s+              # retransmit
-            (\d+)\s+                     # uid
-            (\d+)\s+                     # timeout
-            (\d+)\s+                     # inode
-            (\d+)\s+                     # ref
-            ([\dA-F]+)\s+                # pointer
-            (\d+)                        # drops
+        for my $line (<$fl>) {
+            my $udp_connection = {};
+
+            chomp $line;
+            #  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops             
+            #    1: 00000000:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 3941318127 2 ffff880284682bc0 0     
+    
+            # Skip header 
+            if ($line =~ /^\s+sl\s+local_address/) {
+                next;
+            }
+
+            my @matches = $line =~ m/
+                ^\s*(\d+):\s+                   # number of record
+                ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
+                ([\dA-F]{8,32}):([\dA-F]{4})\s+ # remote_address 8 - ipv4, 32 - ipv6
+                ([\dA-F]{2})\s+                 # st
+                ([\dA-F]{8}):([\dA-F]{8})\s+    # tx_queue, rx_queue
+                (\d+):([\dA-F]{8})\s+           # tr and tm->when
+                ([\dA-F]{8})\s+                 # retransmit
+                (\d+)\s+                        # uid
+                (\d+)\s+                        # timeout
+                (\d+)\s+                        # inode
+                (\d+)\s+                        # ref
+                ([\dA-F]+)\s+                   # pointer
+                (\d+)                           # drops
             /xi;
 
-        if (scalar @matches == 0) {
-            warn "Can't parse udp connection line: $line\n";
-            next;
+            if (scalar @matches == 0) {
+                warn "Can't parse udp connection line: $line\n";
+                next;
+            }
+
+            @$udp_connection{ 'sl', 'local_address', 'local_port', 'rem_address', 'rem_port', 'st', 'tx_queue', 'rx_queue', 'tr', 'tm_when', 'retrnsmt', 'uid', 'timeout', 'inode', 'ref', 'pointer', 'drops' } = @matches; 
+
+            # Конвертируем удаленный/локальный адреса в нормальный форамат
+            for my $address_type ('local_address', 'rem_address') {
+                $udp_connection->{$address_type} = _hex2ip($udp_connection->{$address_type });
+            }
+
+            # Тут все закодировано чуточку проще
+            for my $port_type ('local_port', 'rem_port') {
+                $udp_connection->{$port_type} = hex $udp_connection->{$port_type};
+            }
+
+            push @$udp_connections, $udp_connection;
         }
-
-        @$udp_connection{ 'sl', 'local_address', 'local_port', 'rem_address', 'rem_port', 'st', 'tx_queue', 'rx_queue', 'tr', 'tm_when', 'retrnsmt', 'uid', 'timeout', 'inode', 'ref', 'pointer', 'drops' } = @matches; 
-
-        # Конвертируем удаленный/локальный адреса в нормальный форамат
-        for my $address_type ('local_address', 'rem_address') {
-            $udp_connection->{$address_type} = _hex2ip($udp_connection->{$address_type });
-        }
-
-        # Тут все закодировано чуточку проще
-        for my $port_type ('local_port', 'rem_port') {
-            $udp_connection->{$port_type} = hex $udp_connection->{$port_type};
-        }
-
-
-        push @$udp_connections, $udp_connection;
-    }
 
         close $fl;
     }
@@ -1502,65 +1477,65 @@ sub parse_tcp_connections {
             return $tcp_connections; 
         }
 
-    for my $line (<$fl>) {
-        my $tcp_connection = {};
+        for my $line (<$fl>) {
+            my $tcp_connection = {};
 
-        chomp $line;
+            chomp $line;
   
-        # Формат отличается от UDP парсер, поэтому далаем его ОТДЕЛЬНО 
-        #   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-        # 0: 00000000:7275 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 32793258 1 ffff8854feba98c0 99 0 0 10 -1         
+            # Формат отличается от UDP парсер, поэтому далаем его ОТДЕЛЬНО 
+            #   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+            # 0: 00000000:7275 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 32793258 1 ffff8854feba98c0 99 0 0 10 -1         
  
-        # Skip header 
-        if ($line =~ /^\s+sl\s+local_address/) {
-            next;
-        }
+            # Skip header 
+            if ($line =~ /^\s+sl\s+local_address/) {
+                next;
+            }
     
-        # 5977: 33DD242E:0050 859E2459:CF01 01 00000000:00000000 00:1AD7F29ABCA 00000000    33        0 3912372353 1 ffff882be39ec400 179 3 9 10 - 
-        my @matches = $line =~ m/
-            ^\s*(\d+):\s+                # number of record
-            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
-            ([\dA-F]{8,32}):([\dA-F]{4})\s+ # remote_address 8 - ipv4, 32 - ipv6
-            ([\dA-F]{2})\s+              # st
-            ([\dA-F]{8}):([\dA-F]{8})\s+ # tx_queue, rx_queue
-            (\d+):([\dA-F]{8,11})\s+     # tr and tm->when
-            ([\dA-F]{8})\s+              # retransmit
-            (\d+)\s+                     # uid
-            (\d+)\s+                     # timeout
-            (\d+)\s+                     # inode
-            (.*?)\s*$                    # other stuff
-            /xi;
+            # 5977: 33DD242E:0050 859E2459:CF01 01 00000000:00000000 00:1AD7F29ABCA 00000000    33        0 3912372353 1 ffff882be39ec400 179 3 9 10 - 
+            my @matches = $line =~ m/
+                ^\s*(\d+):\s+                # number of record
+                ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
+                ([\dA-F]{8,32}):([\dA-F]{4})\s+ # remote_address 8 - ipv4, 32 - ipv6
+                ([\dA-F]{2})\s+              # st
+                ([\dA-F]{8}):([\dA-F]{8})\s+ # tx_queue, rx_queue
+                (\d+):([\dA-F]{8,11})\s+     # tr and tm->when
+                ([\dA-F]{8})\s+              # retransmit
+                (\d+)\s+                     # uid
+                (\d+)\s+                     # timeout
+                (\d+)\s+                     # inode
+                (.*?)\s*$                    # other stuff
+                /xi;
 
-        if (scalar @matches == 0) {
-            warn "Can't parse tcp connection line: $line\n";
-            next;
-        }
+            if (scalar @matches == 0) {
+                warn "Can't parse tcp connection line: $line\n";
+                next;
+            }
 
-        @$tcp_connection{ 'sl', 'local_address', 'local_port', 'rem_address', 'rem_port', 'st', 'tx_queue', 'rx_queue', 'tr', 'tm_when', 'retrnsmt', 'uid', 'timeout', 'inode', 'other' } = @matches; 
+            @$tcp_connection{ 'sl', 'local_address', 'local_port', 'rem_address', 'rem_port', 'st', 'tx_queue', 'rx_queue', 'tr', 'tm_when', 'retrnsmt', 'uid', 'timeout', 'inode', 'other' } = @matches; 
 
-        # Конвертируем удаленный/локальный адреса в нормальный форамат
-        for my $address_type ('local_address', 'rem_address') {
-            $tcp_connection->{$address_type} = _hex2ip($tcp_connection->{$address_type });
-        }
+            # Конвертируем удаленный/локальный адреса в нормальный форамат
+            for my $address_type ('local_address', 'rem_address') {
+                $tcp_connection->{$address_type} = _hex2ip($tcp_connection->{$address_type });
+            }
 
-        # Тут все закодировано чуточку проще
-        for my $port_type ('local_port', 'rem_port') {
-            $tcp_connection->{$port_type} = hex $tcp_connection->{$port_type};
-        }
+            # Тут все закодировано чуточку проще
+            for my $port_type ('local_port', 'rem_port') {
+                $tcp_connection->{$port_type} = hex $tcp_connection->{$port_type};
+            }
 
-        # Преобразуем в понятное значение
-        $tcp_connection->{state} = $tcp_status_names[ hex $tcp_connection->{st} ];
+            # Преобразуем в понятное значение
+            $tcp_connection->{state} = $tcp_status_names[ hex $tcp_connection->{st} ];
 
-        #print "$tcp_connection->{st} => $tcp_connection->{state}\n"; 
+            #print "$tcp_connection->{st} => $tcp_connection->{state}\n"; 
 
-        unless ($tcp_connection->{state}) {
-            warn "Can't get correct connection status for: $tcp_connection->{st}\n";
-        }
+            unless ($tcp_connection->{state}) {
+                warn "Can't get correct connection status for: $tcp_connection->{st}\n";
+            }
 
-        # print Dumper($tcp_connection);
+            # print Dumper($tcp_connection);
     
-        push @$tcp_connections, $tcp_connection;
-    }
+            push @$tcp_connections, $tcp_connection;
+        }
 
         close $fl;
     }
@@ -1569,7 +1544,7 @@ sub parse_tcp_connections {
 }
 
 
-# Улучшенная версия readlink, которая обходит пути до упора, пока не найдем искомый файл
+# Улучшенная версия рекурсивного readlink, которая обходит пути до упора, пока не найдем искомый файл
 sub readlink_deep {
     my $path = shift;
 
@@ -1623,3 +1598,100 @@ sub _hex2ip {
     }
     else { die "internal error: bad hexadecimal encoded IP address '$_[0]'" }
 }
+
+# Получаем все типы соединений для данного неймспейса (в случае указания pid) или всего сервера
+sub read_all_namespace_connections {
+    my $pid = shift;
+
+    my $connections = {};
+
+    $connections->{tcp}  = parse_tcp_connections($pid);
+    $connections->{udp}  = parse_udp_connections($pid);
+    $connections->{unix} = parse_unix_connections($pid);
+
+    return $connections;    
+}
+
+# Построить хэш вида: inode-соединение для быстрого разрешения соединения по номеру inode
+sub build_inode_to_socket_lookup_table {
+    my $connections = shift;
+
+    my $inode_to_socket = {};
+
+    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
+    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
+    for my $proto ('tcp', 'udp', 'unix') {
+        for my $item (@{ $connections->{$proto} })  {
+            if ($item->{inode} == 0) {
+                # Да, такое бывает, для многих соединений inode == 0
+                push @{ $inode_to_socket->{ 'orphan' } }, { type => $proto, connection => $item };
+            } else {
+                $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
+            }
+        }    
+    }    
+
+    return $inode_to_socket;
+}
+
+# Отображаем все "потерянные" соединения для определенного пространства имен
+# Это нестандартный валидатор, он запускается отдельно от прочих
+sub check_orphan_connections {
+    my $container = shift;
+    my $inode_to_socket = shift;
+
+    my @normal_tcp_states_for_orphan_sockets = ('TCP_TIME_WAIT', 'TCP_FIN_WAIT2', 'TCP_SYN_RECV', 'TCP_LAST_ACK', 'TCP_FIN_WAIT1');
+
+    if ($inode_to_socket->{'orphan'} && ref $inode_to_socket->{'orphan'} eq 'ARRAY' && @{ $inode_to_socket->{'orphan'} } > 0 ) {
+        SOCKETS_LOOP:
+        for my $orphan_socket (@{ $inode_to_socket->{orphan} }) {
+            # Skip unix sockets
+            if ($orphan_socket->{type} eq 'unix') {
+                next;
+            }
+
+            if ($orphan_socket->{type} eq 'tcp') {
+                if (in_array($orphan_socket->{connection}->{state}, @normal_tcp_states_for_orphan_sockets)) {
+                    next;
+                } 
+            }
+
+            if ($container) {
+                warn "Orphan socket in: $container type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
+            } else {
+                warn "Orphan socket type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
+            }    
+        }    
+    }    
+
+}
+
+# Красивый "принтер" tcp/udp соединений
+sub connection_pretty_print {
+    my $connection = shift;
+
+    my $print_string = '';
+   
+    $print_string = "local: $connection->{local_address}:$connection->{local_port} remote: $connection->{rem_address}:$connection->{rem_port} state: $connection->{state}";
+ 
+    return $print_string;
+}
+
+# Проверка адреса на принадлежность loopback интерфейсу
+sub is_loopback_address {
+    my $address = shift;
+
+    if ($address && ( $address eq '127.0.0.1' or $address eq '::1' or $address eq '0:0:0:0:0:0:0:1')) {
+        return 1;
+    }
+
+    return '';
+}
+
+sub in_array {
+    my ($elem, @array) = @_; 
+
+    return scalar grep { $elem eq $_ } @array;  
+}
+
+1;
