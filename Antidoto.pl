@@ -52,6 +52,7 @@ my $binary_which_can_be_suid = {
     '/usr/local/ispmgr/bin/billmgr' => 1, # аналогично ispmanager
     '/usr/local/ispmgr/bin/ispmgr' => 1, # да, ispmanager использует SUID
     '/usr/local/ispmgr/sbin/pbackup' => 1,
+    '/usr/sbin/postdrop' => 1,
     '/usr/sbin/exim4' => 1,
     '/usr/sbin/exim' => 1, # Centos exim
     '/bin/su' => 1,
@@ -198,6 +199,17 @@ my $processes_rules = {
     }
 };
 
+
+# TODO: сделать этот валидатор не локальным
+# Для отдельного сервера вполне посильная задача собрать ключевые суммы
+#    $execute_full_hash_validation = 1; 
+
+if (scalar @ARGV == 0 ) {
+    print "Start scanning hardware server\n";
+    process_standard_linux_server();
+    print "Finish scanning hardware server\n";
+}
+
 # В случае OpenVZ ноды мы обходим все контейнеры
 for my $container (@running_containers) {
     if ($container eq '1' or $container eq '50') {
@@ -285,12 +297,6 @@ for my $container (@running_containers) {
 
 } # for my $container
 
-unless ($is_openvz_node) {
-    # Для отдельного сервера вполне посильная задача собрать ключевые суммы
-    $execute_full_hash_validation = 1;
-    process_standard_linux_server();
-}
-
 # Обработка обычного сервера
 sub process_standard_linux_server {
     my $connections = read_all_namespace_connections();
@@ -331,7 +337,7 @@ sub process_standard_linux_server {
         if ($pid =~ m/^\.+$/) {
             next PROCESSES_LOOP;
         }
- 
+
         # Обязательно проверяем, чтобы псевдо-файл существовал
         # Если его нету, то это означает ни что иное, как остановку процесса 
         unless (-e "/proc/$pid") {
@@ -342,6 +348,11 @@ sub process_standard_linux_server {
 
         unless ($status) {
             warn "Can't read status for process: $pid";
+            next;
+        }
+    
+        # Если мы сканируем саму по себе аппаратную OpenVZ ноду, то процессы с отличным от 0 ctid мы отбрасываем
+        if ($is_openvz_node && $status->{envID} ne '0') {
             next;
         }
 
@@ -582,6 +593,10 @@ sub check_process_parents {
 sub check_ld_preload  {
     my ($pid, $status) = @_;   
 
+    my $ld_preload_whitelist = {
+        '/usr/lib/authbind/libauthbind.so.1' => 1, # https://packages.debian.org/wheezy/authbind, его использует tomcat
+    };
+
     my $path = "/proc/$pid/environ";
     my $data = read_file_contents($path);
 
@@ -603,7 +618,7 @@ sub check_ld_preload  {
         # Такой "подход" используется в Bitrix (SIC) environment
 
         my $ld_preload = $process_environment->{'LD_PRELOAD'};
-        if (defined($ld_preload) && $ld_preload) {
+        if (defined($ld_preload) && $ld_preload && !defined ($ld_preload_whitelist->{$ld_preload})) {
             print_process_warning($pid, $status, "This process loaded with LD_PRELOAD ($ld_preload) an it may be a VIRUS");
         }
     }
@@ -1640,7 +1655,7 @@ sub check_orphan_connections {
     my $container = shift;
     my $inode_to_socket = shift;
 
-    my @normal_tcp_states_for_orphan_sockets = ('TCP_TIME_WAIT', 'TCP_FIN_WAIT2', 'TCP_SYN_RECV', 'TCP_LAST_ACK', 'TCP_FIN_WAIT1');
+    my @normal_tcp_states_for_orphan_sockets = ('TCP_TIME_WAIT', 'TCP_FIN_WAIT2', 'TCP_SYN_RECV', 'TCP_LAST_ACK', 'TCP_FIN_WAIT1', 'TCP_CLOSE_WAIT');
 
     if ($inode_to_socket->{'orphan'} && ref $inode_to_socket->{'orphan'} eq 'ARRAY' && @{ $inode_to_socket->{'orphan'} } > 0 ) {
         SOCKETS_LOOP:

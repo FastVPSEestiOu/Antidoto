@@ -27,7 +27,6 @@ TODO:
 # tcp        0    848 78.46.12.227:22         60.173.26.146:10697     ESTABLISHED 15051/sshd: [accept
 - Генерация сигнатур для ClamAV: http://www.clamav.net/doc/webinars/Webinar-Alain-2009-03-04.pdf
 - Как работать с prelink и как получить файл до prelink: https://access.redhat.com/site/solutions/75013
-- http://aide.sourceforge.net/ - контроль за состоянием файловой системы по сигнатурам
 
 # Биндинг RPM для Perl
 # yum install -y perl-RPM2
