@@ -207,6 +207,10 @@ for my $container (@running_containers) {
 
     my @ct_processes_pids = read_file_contents_to_list("/proc/vz/fairsched/$container/tasks");
 
+    my @container_ips = get_ips_for_container($container);
+
+    #warn Dumper(\@container_ips);
+
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
     if ($execute_full_hash_validation) {
         $hash_lookup_for_all_binary_files = {};
@@ -226,8 +230,6 @@ for my $container (@running_containers) {
 
     my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
 
-    # TODO: почему-то inode люто дублируются!!!!!!!!!!!!!! Надо разобраться
-    # http://paste.org.ru/?fb2341 АД!!!! Куча битых айнодов!!!
 
     my $connections = {};
 
@@ -241,8 +243,14 @@ for my $container (@running_containers) {
 
     my $inode_to_socket = {};
 
+    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
+    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
     for my $proto ('tcp', 'udp', 'unix') {
         for my $item (@{ $connections->{$proto} })  {
+            if ($inode_to_socket->{ $proto }->{ $item->{inode } }) {
+                warn "duplicate inode $item->{inode}\n";
+            }
+
             $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
         }    
     }
@@ -315,8 +323,8 @@ sub process_standard_linux_server {
     my $init_elf_info = `cat /proc/1/exe | file -`;
     chomp $init_elf_info;
 
-    # TODO: почему-то inode люто дублируются!!!!!!!!!!!!!! Надо разобраться
-    # http://paste.org.ru/?fb2341 АД!!!! Куча битых айнодов!!!
+    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
+    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
 
     my $connections = {};
     $connections->{tcp}  = parse_tcp_connections();
@@ -327,6 +335,10 @@ sub process_standard_linux_server {
 
     for my $proto ('tcp', 'udp', 'unix') {
         for my $item (@{ $connections->{$proto} })  {
+            if ($inode_to_socket->{ $proto }->{ $item->{inode } }) { 
+                warn "duplicate inode $item->{inode}\n";
+            }    
+
             $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
         }    
     }
@@ -398,6 +410,36 @@ sub process_standard_linux_server {
         }
 
     }
+}
+
+# Получить все IP адреса, привязанные к конетейнеру
+# Работает как со стороны ноды, так и изнутри OpenVZ котейнера
+sub get_ips_for_container {
+    my $ctid = shift;
+
+    my $path = '/proc/vz/veinfo';
+
+    my @veinfo = read_file_contents_to_list($path);
+   
+    #      39045     2    22              2a01:4f8:150:9222:0:0:0:13  178.63.152.133
+    for my $line (@veinfo) {
+        if ($line =~ m/^\s*$ctid/) {
+            # Сотрем начальные пробелы
+            $line =~ s/^\s+//g;
+            my @data = split /\s+/, $line;
+
+            # remove first 3 elements 
+            for (1..3) {
+                shift @data; 
+            } 
+
+            my @ips = @data;
+
+            return @ips; 
+        }
+    }
+
+    return ();
 }
 
 # Обработать статус процесса, добавив в него ряд полезных пунктов
@@ -856,7 +898,8 @@ sub check_process_open_fd {
 
                 }
             }
-    
+   
+            # TODO: разобраться, а потом отрубить 
             if (!defined ($standard_connection) && !defined($udp_connection) && !defined($unix_connection)) {
                 warn "Can't find any info about socket with inode: $inode for process with pid: $pid in tcp, udp and unix domain connections\n";            
             }
@@ -1295,7 +1338,6 @@ sub parse_udp_connections {
         @files_for_reading = ("/proc/net/udp", "/proc/net/udp6");
     }
 
-    # Тут хэш: inode => вся инфа о коннекте
     my $udp_connections = [];
     
     for my $udp_file_stat_name (@files_for_reading) {
