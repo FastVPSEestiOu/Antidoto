@@ -135,6 +135,9 @@ my $hash_lookup_for_all_binary_files = {
     '21a265738651407ce0fcede295abd675' => '/sbin/syslogd',
     'e98f49146b5e8203838a2d451835eb1a' => '/sbin/syslogd',
     '58ae7c68e945f1d88b6fc0c46494812b' => '/sbin/syslogd',
+
+    # vzapi tools
+    'd77fb76bcddb774a8a541dce42667b5d' => '/usr/bin/md5_pipe',
 };
 
 my $execute_full_hash_validation = 0;
@@ -594,7 +597,8 @@ sub check_ld_preload  {
     my ($pid, $status) = @_;   
 
     my $ld_preload_whitelist = {
-        '/usr/lib/authbind/libauthbind.so.1' => 1, # https://packages.debian.org/wheezy/authbind, его использует tomcat
+        '/usr/lib/authbind/libauthbind.so.1' => 1,       # https://packages.debian.org/wheezy/authbind, его использует tomcat
+        '/usr/local/lib/authbind/libauthbind.so.1' => 1, # Bitrix smtpd.php
     };
 
     my $path = "/proc/$pid/environ";
@@ -1655,7 +1659,7 @@ sub check_orphan_connections {
     my $container = shift;
     my $inode_to_socket = shift;
 
-    my @normal_tcp_states_for_orphan_sockets = ('TCP_TIME_WAIT', 'TCP_FIN_WAIT2', 'TCP_SYN_RECV', 'TCP_LAST_ACK', 'TCP_FIN_WAIT1', 'TCP_CLOSE_WAIT');
+    my @normal_tcp_states_for_orphan_sockets = ('TCP_TIME_WAIT', 'TCP_FIN_WAIT2', 'TCP_SYN_RECV', 'TCP_LAST_ACK', 'TCP_FIN_WAIT1', 'TCP_CLOSE_WAIT', 'TCP_CLOSING');
 
     if ($inode_to_socket->{'orphan'} && ref $inode_to_socket->{'orphan'} eq 'ARRAY' && @{ $inode_to_socket->{'orphan'} } > 0 ) {
         SOCKETS_LOOP:
