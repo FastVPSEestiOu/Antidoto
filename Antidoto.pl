@@ -159,10 +159,6 @@ if ($is_openvz_node) {
 
 }
 
-my $inode_to_udp_connecton_socket   = parse_udp_connections();
-my $inode_to_tcp_connection_socket  = parse_tcp_connections();
-my $inode_to_unix_connection_socket = parse_unix_connections();
-
 # Список системных пользователей, которые в нормальных условиях не должны иметь свой crontab в /var/spool/cron/crontabs
 my $users_which_cant_have_crontab = { 
     'www-data' => 1,
@@ -230,6 +226,27 @@ for my $container (@running_containers) {
 
     my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
 
+    # TODO: почему-то inode люто дублируются!!!!!!!!!!!!!! Надо разобраться
+    # http://paste.org.ru/?fb2341 АД!!!! Куча битых айнодов!!!
+
+    my $connections = {};
+
+    # Тут мы читаем псевдо-файла /proc/CT_INIT_PID/net/*, так как там содержатся все соединения для данного контейнера,
+    # а вовсе не соединения для данного процесса
+    $connections->{tcp}  = parse_tcp_connections("/proc/$container_init_process_pid_on_node/net/tcp",
+        "/proc/$container_init_process_pid_on_node/net/tcp6");
+    $connections->{udp}  = parse_udp_connections("/proc/$container_init_process_pid_on_node/net/udp",
+        "/proc/$container_init_process_pid_on_node/net/udp6");
+    $connections->{unix} = parse_unix_connections("/proc/$container_init_process_pid_on_node/net/unix");
+
+    my $inode_to_socket = {};
+
+    for my $proto ('tcp', 'udp', 'unix') {
+        for my $item (@{ $connections->{$proto} })  {
+            $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
+        }    
+    }
+
     my $init_elf_info = `cat /proc/$container_init_process_pid_on_node/exe | file -`;
     chomp $init_elf_info;
 
@@ -269,7 +286,7 @@ for my $container (@running_containers) {
  
             #print "We call function $check_function_name for process $pid\n";
             my $sub_ref = $process_checks->{$check_function_name};
-            $sub_ref->($pid, $status);
+            $sub_ref->($pid, $status, $inode_to_socket);
         }
      
     }
@@ -297,6 +314,22 @@ sub process_standard_linux_server {
 
     my $init_elf_info = `cat /proc/1/exe | file -`;
     chomp $init_elf_info;
+
+    # TODO: почему-то inode люто дублируются!!!!!!!!!!!!!! Надо разобраться
+    # http://paste.org.ru/?fb2341 АД!!!! Куча битых айнодов!!!
+
+    my $connections = {};
+    $connections->{tcp}  = parse_tcp_connections();
+    $connections->{udp}  = parse_udp_connections();
+    $connections->{unix} = parse_unix_connections();
+
+    my $inode_to_socket = {};
+
+    for my $proto ('tcp', 'udp', 'unix') {
+        for my $item (@{ $connections->{$proto} })  {
+            $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
+        }    
+    }
 
     my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
 
@@ -361,7 +394,7 @@ sub process_standard_linux_server {
 
             #print "We call function $check_function_name for process $pid\n";
             my $sub_ref = $process_checks->{$check_function_name};
-            $sub_ref->($pid, $status);
+            $sub_ref->($pid, $status, $inode_to_socket);
         }
 
     }
@@ -719,7 +752,7 @@ sub md5_file {
 }
 
 sub check_process_open_fd {
-    my ($pid, $status) = @_;
+    my ($pid, $status, $inode_to_socket) = @_;
 
     opendir my $dir, "/proc/$pid/fd" or return;
 
@@ -734,6 +767,7 @@ sub check_process_open_fd {
 
         unless (defined($target)) {
             $target = '';
+            next;
         }
 
         if ($target =~ m/^inotify$/) {
@@ -747,12 +781,10 @@ sub check_process_open_fd {
         if ($target =~ m/(socket):\[(\d+)\]/) {
             my $inode = $2;
 
-            my $udp_connection = $inode_to_udp_connecton_socket->{ $inode };
-
-            my $standard_connection = $inode_to_tcp_connection_socket->{ $inode };
-
+            my $udp_connection = $inode_to_socket->{udp}->{ $inode };
+            my $standard_connection = $inode_to_socket->{tcp}->{ $inode };
             # Мы их толком не анализируем, а просто проверяем валидность поиска соединений по номеру inode
-            my $unix_connection = $inode_to_unix_connection_socket->{ $inode };
+            my $unix_connection = $inode_to_socket->{unix}->{ $inode };
 
             if (defined($udp_connection) && $udp_connection) {
                 if ( ($udp_connection->{local_address} eq '0.0.0.0' or $udp_connection->{local_address} =~ /^127\.0\.0\.\d+$/) or $udp_connection->{rem_address} eq '0.0.0.0') {
@@ -1256,12 +1288,17 @@ sub get_init_pid_for_container {
     return $container_init_process_pid_on_node;
 }
 
-# TODO: добавить поддержку udp6
 sub parse_udp_connections {
+    my @files_for_reading = @_;
+
+    unless (@files_for_reading) {
+        @files_for_reading = ("/proc/net/udp", "/proc/net/udp6");
+    }
+
     # Тут хэш: inode => вся инфа о коннекте
-    my $udp_connections = {};
+    my $udp_connections = [];
     
-    for my $udp_file_stat_name ("/proc/net/udp", "/proc/net/udp6") {
+    for my $udp_file_stat_name (@files_for_reading) {
 
     my $res = open my $fl, "<", $udp_file_stat_name;
 
@@ -1315,7 +1352,7 @@ sub parse_udp_connections {
         }
 
 
-        $udp_connections->{ $udp_connection->{'inode'} } = $udp_connection;
+        push @$udp_connections, $udp_connection;
     }
 
         close $fl;
@@ -1327,7 +1364,7 @@ sub parse_udp_connections {
 
 sub parse_unix_connections {
     my $path = '/proc/net/unix';
-    my $unix_connections = {};
+    my $unix_connections = [];
 
     my $res = open my $fl, "<", $path;
     unless ($res) {
@@ -1365,7 +1402,7 @@ sub parse_unix_connections {
         }
 
         @$unix_connection{ 'num', 'refcount', 'protocol', 'flags', 'type', 'st', 'inode', 'path' } = @matches;
-        $unix_connections-> { $unix_connection->{inode} } = $unix_connection;
+        push @$unix_connections, $unix_connection;;
     }
 
     close $fl;
@@ -1373,8 +1410,13 @@ sub parse_unix_connections {
     return $unix_connections;
 }
 
-# TODO: добавить поддержку udp6
 sub parse_tcp_connections {
+    my @files_for_reading = @_;
+
+    unless (@files_for_reading) {
+        @files_for_reading = ("/proc/net/tcp", "/proc/net/tcp6");
+    }
+
     # Спец массив для отображения человеко-понятных статусов
     # http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/include/net/tcp_states.h?id=HEAD
     my @tcp_status_names = (
@@ -1392,10 +1434,9 @@ sub parse_tcp_connections {
         'TCP_CLOSING',
     );
 
-    # Тут хэш: inode => вся инфа о коннекте
-    my $tcp_connections = {};
+    my $tcp_connections = [];
    
-    for my $tcp_file_stat_name ("/proc/net/tcp", "/proc/net/tcp6") {
+    for my $tcp_file_stat_name (@files_for_reading) {
         my $res = open my $fl, "<", $tcp_file_stat_name;
 
         unless ($res) {
@@ -1459,14 +1500,7 @@ sub parse_tcp_connections {
 
         # print Dumper($tcp_connection);
     
-        if ( $tcp_connections->{ $tcp_connection->{'inode'} }  ) {
-            # TODO: почему-то inode люто дублируются!!!!!!!!!!!!!! Надо разобраться
-            # http://paste.org.ru/?fb2341 АД!!!! Куча битых айнодов!!!
-            #warn "Duplicate connection inode: $tcp_connection->{'inode'}\n";
-            #print Dumper ($tcp_connection);
-        }
-
-        $tcp_connections->{ $tcp_connection->{'inode'} } = $tcp_connection;
+        push @$tcp_connections, $tcp_connection;
     }
 
         close $fl;
