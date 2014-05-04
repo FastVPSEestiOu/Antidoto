@@ -959,6 +959,7 @@ sub run_clamav {
         print {$fl} "$_\n";
     }
 
+    # Call freshclam every startup
     system("clamscan --file-list=files_to_scan --infected -d /usr/local/maldetect/sigs/rfxn.ndb -d /usr/local/maldetect/sigs/rfxn.hdb -d /var/lib/clamav");
 }
 
