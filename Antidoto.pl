@@ -183,7 +183,7 @@ my $process_checks = {
     check_ld_preload => \&check_ld_preload,
     check_suid_exe => \&check_suid_exe,
     check_process_parents => \&check_process_parents,
-    check_changed_proc_name => \&check_changed_proc_name,
+    # check_changed_proc_name => \&check_changed_proc_name,
     # check_cwd => \&check_cwd,
 };
 
@@ -207,10 +207,6 @@ for my $container (@running_containers) {
 
     my @ct_processes_pids = read_file_contents_to_list("/proc/vz/fairsched/$container/tasks");
 
-    my @container_ips = get_ips_for_container($container);
-
-    #warn Dumper(\@container_ips);
-
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
     if ($execute_full_hash_validation) {
         $hash_lookup_for_all_binary_files = {};
@@ -230,6 +226,7 @@ for my $container (@running_containers) {
 
     my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
 
+    my @container_ips = get_ips_for_container($container);
 
     my $connections = {};
 
@@ -277,6 +274,9 @@ for my $container (@running_containers) {
 
         # Добавляем параметр "архитектура хост контейнера"
         $status->{fast_container_architecture} = $container_architecture;
+        
+        # Добавляем псевдо параметр - local_ips, это локальные IP контейнера
+        $status->{fast_local_ips} = [ @container_ips ];
 
         $status = process_status($pid, $status);
 
@@ -793,22 +793,22 @@ sub md5_file {
     return $result;
 }
 
-sub check_process_open_fd {
-    my ($pid, $status, $inode_to_socket) = @_;
+# Получить все сетевые соединения контейнера
+sub get_process_connections {
+    my $pid = shift;
+    my $inode_to_socket = shift;
+
+    my $process_connections = [];
 
     opendir my $dir, "/proc/$pid/fd" or return;
 
     my @folders = grep { !/^\.\.?/ } readdir($dir);
-
-    # Хэш, в котором будет храниться число соединений на удаленный сервер от процесса на определенный порт
-    my $connections_to_remote_servers = {};
 
     FILE_DESCRIPTORS_LOOP:
     for my $folder (@folders) {
         my $target = readlink "/proc/$pid/fd/$folder";
 
         unless (defined($target)) {
-            $target = '';
             next;
         }
 
@@ -816,110 +816,109 @@ sub check_process_open_fd {
             next;
         }
 
-        if ($target =~ m/(pipe):\[\d+\]/) {
+        if ($target =~ m/^(pipe):\[\d+\]/) {
             next;
         }
 
-        if ($target =~ m/(socket):\[(\d+)\]/) {
+        if ($target =~ m/^anon_inode:\[(eventpoll|timerfd|eventfd)\]/) {
+            next;
+        }
+
+        if ($target =~ m/^(socket):\[(\d+)\]/) {
             my $inode = $2;
 
-            my $udp_connection = $inode_to_socket->{udp}->{ $inode };
-            my $standard_connection = $inode_to_socket->{tcp}->{ $inode };
-            # Мы их толком не анализируем, а просто проверяем валидность поиска соединений по номеру inode
-            my $unix_connection = $inode_to_socket->{unix}->{ $inode };
+            my $found_socket = '';
+            PROTO_LOOP:
+            for my $proto ('udp', 'tcp', 'unix') {
+                my $connection = $inode_to_socket->{$proto}->{ $inode };
 
-            if (defined($udp_connection) && $udp_connection) {
-                if ( ($udp_connection->{local_address} eq '0.0.0.0' or $udp_connection->{local_address} =~ /^127\.0\.0\.\d+$/) or $udp_connection->{rem_address} eq '0.0.0.0') {
-                    # listen
-                    #unless( $whitelist_listen_udp_ports->{ $udp_connection->{local_port} }) {
-                    #    print "We listened very strange port: $udp_connection->{local_port} from pid: $pid\n";
-                    #}
-
-                    if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{local_port} }) {
-                        print_process_warning($pid, $status, "process connected to  DANGER ($port_description) port $udp_connection->{local_port}");
-                    }
-
-                } else {
-                    # client connection
-                    #unless( $whitelist_listen_udp_ports->{ $udp_connection->{rem_port} }) {
-                        #print "We connected to very strange port: $udp_connection->{rem_port} from pid: $pid\n";
-                        #print Dumper($udp_connection);
-                    #}
-
-                    if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{rem_port} }) {
-                        print_process_warning($pid, $status, "process connected to DANGER ($port_description) port $udp_connection->{rem_port}");
-                    }
+                if ($connection) {
+                    push @$process_connections, { type => $proto, connection => $connection };
+                    $found_socket = 1;
+                    last PROTO_LOOP;
                 }
+
             }
 
-            # это Tcp сокет
-            if (defined ($standard_connection) && $standard_connection) {
-
-                if ($standard_connection->{state} eq 'TCP_LISTEN') {
-                    my $local_port = $standard_connection->{local_port};
-                    my $local_address = $standard_connection->{local_address};
-
-                    # Если тот или иной софт забинден на локалхост, то он нас не интересует
-                    if ($local_address eq '127.0.0.1') {
-                        next FILE_DESCRIPTORS_LOOP;
-                    }
-
-
-                    if (my $port_description = $blacklist_listen_ports->{ $local_port } ) {
-                        print "Pid $pid from CT $status->{envID} listens DANGER PORT $local_port ($port_description)!!! PLEASE CHECK THIS PROCESS\n";
-                    }
-
-                    # Печатаем порт только в случае, если он не в белом списке
-                    unless ($whitelist_listen_tcp_ports->{ $local_port } ) {
-                        # Ну само по себе оно не несет проблемы
-                        # TODO: продумать в каком случае отображать наличие проблемы
-                        ### print "Pid $pid from CT $status->{envID} listens: $local_port on $local_address\n";
-                    }
-                } else { 
-                    my $remote_port = $standard_connection->{rem_port};
-                    my $remote_host = $standard_connection->{rem_address};
-
-                    # Это может быть внутренее соединение, которое не интересно нам при анализе
-                    if ($remote_host eq '127.0.0.1') {
-                        next FILE_DESCRIPTORS_LOOP;
-                    }
-
-                    $connections_to_remote_servers->{ $remote_port } ++; 
-                    if (my $blacklist_port_description = $blacklist_listen_ports->{ $remote_port } ) {
-                        print "Pid $pid from CT $status->{envID} has connection to DANGER PORT $remote_port ($blacklist_port_description) to host $remote_host!!! PLEASE CHECK THIS PROCESS\n"; 
-                    }
-   
-                    my $entry = $standard_connection; 
-                    #printf("%s:%d --> %s:%d, %s\n",
-                    #    $entry->local_address, $entry->local_port,
-                    #    $entry->rem_address, $entry->rem_port,
-                    #    $entry->st
-                    #);
-
-                }
+            unless ($found_socket) {
+                push @$process_connections, { type => 'unknown' }
             }
-   
-            # TODO: разобраться, а потом отрубить 
-            if (!defined ($standard_connection) && !defined($udp_connection) && !defined($unix_connection)) {
-                warn "Can't find any info about socket with inode: $inode for process with pid: $pid in tcp, udp and unix domain connections\n";            
-            }
-
-            next FILE_DESCRIPTORS_LOOP;
-        }
-
-        if ($target =~ m/anon_inode:\[(eventpoll|timerfd|eventfd)\]/) {
-            next;
         }
 
         # уберем префикс уровня ноды, чтобы получить данные внутри контейнера
-        $target =~ s#/vz/root/\d+/?#/#g; 
+        $target =~ s#/vz/root/\d+/?#/#g;
+        push @$process_connections, { type => 'file', path => $target };
+    }
 
-        # Исключим заведомо хорошие файлы
-        if (defined($good_opened_files->{$target})) {
-            next;
+    return $process_connections;
+}
+
+
+sub check_process_open_fd {
+    my ($pid, $status, $inode_to_socket) = @_;
+
+    # Хэш, в котором будет храниться число соединений на удаленный сервер от процесса на определенный порт
+    my $connections_to_remote_servers = {};
+
+    # Тут у нас может быть информация о локальных IP
+    if ($status->{fast_local_ips}) {
+
+    }
+
+    my $process_connections = get_process_connections($pid, $inode_to_socket);
+
+    CONNECTIONS_LOOP:
+    for my $connection (@$process_connections) {
+        if ($connection->{type} eq 'unknown') {
+            # TODO:
+            next CONNECTIONS_LOOP;
+        } elsif ($connection->{type} eq 'udp') {
+            my $udp_connection = $connection->{connection};
+
+            if ( ($udp_connection->{local_address} eq '0.0.0.0' or $udp_connection->{local_address} =~ /^127\.0\.0\.\d+$/) or $udp_connection->{rem_address} eq '0.0.0.0' ) { 
+                # listen  udp socket!!!
+
+                if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{local_port} }) {
+                    print_process_warning($pid, $status, "process connected to  DANGER ($port_description) port $udp_connection->{local_port}");
+                }
+            } else {
+                # client udp socket
+                if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{rem_port} }) {
+                    print_process_warning($pid, $status, "process connected to DANGER ($port_description) port $udp_connection->{rem_port}");
+                }
+            }
+        } elsif ($connection->{type} eq 'tcp') {
+            my $tcp_connection = $connection->{connection};
+
+            if ($tcp_connection->{state} eq 'TCP_LISTEN') {
+                my $local_port = $tcp_connection->{local_port};
+                my $local_address = $tcp_connection->{local_address};
+
+                # Если тот или иной софт забинден на локалхост, то он нас не интересует
+                if ($local_address eq '127.0.0.1') {
+                    next CONNECTIONS_LOOP;
+                }
+
+                if (my $port_description = $blacklist_listen_ports->{ $local_port } ) {
+                    print "Pid $pid from CT $status->{envID} listens DANGER PORT $local_port ($port_description)!!! PLEASE CHECK THIS PROCESS\n";
+                }
+            } else {
+                # client connection
+
+                my $remote_port = $tcp_connection->{rem_port};
+                my $remote_host = $tcp_connection->{rem_address};
+
+                # Это может быть внутренее соединение, которое не интересно нам при анализе
+                if ($remote_host eq '127.0.0.1') {
+                    next FILE_DESCRIPTORS_LOOP;
+                }
+
+                $connections_to_remote_servers->{ $remote_port } ++; 
+                if (my $blacklist_port_description = $blacklist_listen_ports->{ $remote_port } ) {
+                    print "Pid $pid from CT $status->{envID} has connection to DANGER PORT $remote_port ($blacklist_port_description) to host $remote_host!!! PLEASE CHECK THIS PROCESS\n"; 
+                }
+            }
         }
-
-        #print "$pid $status->{Name} $target\n";
     }
 
     for my $remote_port_iteration (scalar keys %$connections_to_remote_servers > 0) {
