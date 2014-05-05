@@ -264,7 +264,7 @@ for my $container (@running_containers) {
 
         unless ($status) {
             warn "Can't read status for process: $pid";
-            next;
+            next PROCESSES_LOOP;
         }
 
         # Добавляем параметр "архитектура хост контейнера"
@@ -331,21 +331,9 @@ sub process_standard_linux_server {
 
     my $it_is_openvz_container = -e "/proc/user_beancounters";
 
-    opendir my $proc_dir, "/proc" or die "Can't open /proc";
-    
+    my @server_processes_pids = get_server_processes();
     PROCESSES_LOOP:
-    while (my $pid = readdir($proc_dir)) {
-        unless ($pid =~ m/^\d+$/) {
-            next PROCESSES_LOOP;
-        }
-  
-        # skip pseudo .. and .
-        if ($pid =~ m/^\.+$/) {
-            next PROCESSES_LOOP;
-        }
-
-        # Обязательно проверяем, чтобы псевдо-файл существовал
-        # Если его нету, то это означает ни что иное, как остановку процесса 
+    for my $pid (@server_processes_pids) {
         unless (-e "/proc/$pid") {
             next;
         }
@@ -386,9 +374,37 @@ sub process_standard_linux_server {
             next;
         }
 
-
         call_process_checks($pid, $status, $inode_to_socket);
     }
+}
+
+# Получить все процессы запущенные на сервере
+sub get_server_processes {
+    opendir my $proc_dir, "/proc" or die "Can't open /proc";
+
+    my @processes_pids = ();
+
+    PROCESSES_LOOP:
+    while (my $pid = readdir($proc_dir)) {
+        unless ($pid =~ m/^\d+$/) {
+            next PROCESSES_LOOP;
+        }
+
+        # skip pseudo .. and .
+        if ($pid =~ m/^\.+$/) {
+            next PROCESSES_LOOP;
+        }
+
+        # Обязательно проверяем, чтобы псевдо-файл существовал
+        # Если его нету, то это означает ни что иное, как остановку процесса 
+        unless (-e "/proc/$pid") {
+            next PROCESSES_LOOP;
+        }
+
+        push @processes_pids, $pid;
+    }
+
+    return @processes_pids;
 }
 
 # Получить все IP адреса, привязанные к конетейнеру
