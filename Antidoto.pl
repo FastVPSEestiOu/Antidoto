@@ -184,6 +184,7 @@ my $process_checks = {
     check_exe_files_by_checksumm => \&check_exe_files_by_checksumm,
     check_process_open_fd => \&check_process_open_fd,
     check_32bit_software_on_64_bit_server => \&check_32bit_software_on_64_bit_server,
+    check_binary_with_clamd => \&check_binary_with_clamd,
     check_ld_preload => \&check_ld_preload,
     check_suid_exe => \&check_suid_exe,
     check_process_parents => \&check_process_parents,
@@ -1021,6 +1022,29 @@ sub get_url_basedir {
     my $result_url = join '/', @data;
 
     return $result_url;
+}
+
+sub check_binary_with_clamd {
+    my ($pid, $status) = @_;
+
+    my $scan_raw_result = `cat /proc/$pid/exe | clamdscan -`;
+    chomp $scan_raw_result;
+
+    my $scan_result = '';
+
+    if ($scan_raw_result =~ m/stream: (.+)$/im) {
+        $scan_result = $1;
+    }
+
+    my $exclude_codes = {
+        "Heuristics.Broken.Executable" => 1,
+    };
+
+    if ($scan_result && ($scan_result eq 'OK' or $exclude_codes->{ $scan_result } )) {
+        # все ок!
+    } else {
+        print_process_warning($pid, $status, "We found a virus: $scan_result");
+    }
 }
 
 # Проверим, чтобы все ПО запущенное на сервере было той же архитектуры, что и система на сервере

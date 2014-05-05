@@ -1,6 +1,7 @@
 TODO:
 
 - Интегрировать clamd - демон сканирования!
+- yum install -y clamav clamd; freshclam; /etc/init.c/clamd start; chkconfig clamd on
 - ClamAV интеграция: он как на CentOS 5 так и на CentOS 6 вполне актульных версий из Epel
 - При запуска симлинка программы, он получает exe именно симлинка, а не самой exe программы, это нужно учитываться
 - Как определить, что программа запущена из SUID бинарика? По разнице effective/real?
