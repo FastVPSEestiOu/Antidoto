@@ -1,5 +1,6 @@
 TODO:
 
+- Анализировать процессы, запущенные без соответствующего символьного пользователя в системе - часто это малварь
 - Интегрировать clamd - демон сканирования!
 - yum install -y clamav clamd; freshclam; /etc/init.c/clamd start; chkconfig clamd on
 - ClamAV интеграция: он как на CentOS 5 так и на CentOS 6 вполне актульных версий из Epel

@@ -66,6 +66,8 @@ my $binary_which_can_be_suid = {
     '/usr/bin/ssh-agent' => 1,
     '/usr/bin/fping' => 1,
     '/bin/mount' => 1,
+    '/bin/ping' => 1,
+    '/usr/local/ispmgr/cgi/download' => 1,
 };
 
 # Паттерны найденных вирусов
@@ -321,6 +323,23 @@ sub process_standard_linux_server {
     }
 }
 
+# Парсим файл /etc/passwd
+sub parse_passwd_file { 
+    my $path = shift;
+
+    my $users = {};
+    my @lines = read_file_contents_to_list($path);
+
+    for my $line (@lines) {
+        # ftp:x:14:50:FTP User:/var/ftp:/sbin/nologin 
+        my @data = split /:/, $line;
+    
+        $users->{$data[0] } = {  uid => $data[2], gid => $data[3], description => $data[4], home => $data[5], shell => $data[6] };
+    }
+
+    return $users;
+}
+
 sub build_process_tree {
     my $server_processes_pids = shift;
 
@@ -409,17 +428,20 @@ sub get_server_processes_detailed {
         @process_pids = get_server_processes();
     }
 
+    my $passwd_data = '';
     if ($is_openvz_node) {
         if ($ctid == 0 ) {
             $init_process_pid = 1; 
+            $passwd_data = parse_passwd_file("/etc/passwd");
         } else {
             $init_process_pid  = get_init_pid_for_container(\@process_pids);
+            $passwd_data = parse_passwd_file("/vz/root/$ctid/etc/passwd");
         }    
     } else {
-        $init_process_pid = 1; 
+        $init_process_pid = 1;
+        $passwd_data = parse_passwd_file("/etc/passwd");
     }
 
-    
     my @container_ips = ();
     if ($ctid > 0) {
         @container_ips = get_ips_for_container($ctid);
@@ -459,7 +481,9 @@ sub get_server_processes_detailed {
             }
             # И если при stat мы получаем ошибку доступа, то это правда vzctl с ноды
         }
-
+        
+        # Получаем информацию о соотвествии имен и uid пользователей 
+        $status->{fast_passwd} = $passwd_data;
 
         # Добавляем параметр "архитектура хост контейнера"
         $status->{fast_container_architecture} = $server_architecture;
