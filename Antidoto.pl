@@ -184,7 +184,7 @@ my $process_checks = {
     check_exe_files_by_checksumm => \&check_exe_files_by_checksumm,
     check_process_open_fd => \&check_process_open_fd,
     check_32bit_software_on_64_bit_server => \&check_32bit_software_on_64_bit_server,
-    check_binary_with_clamd => \&check_binary_with_clamd,
+    # check_binary_with_clamd => \&check_binary_with_clamd,
     check_ld_preload => \&check_ld_preload,
     check_suid_exe => \&check_suid_exe,
     check_process_parents => \&check_process_parents,
@@ -225,6 +225,9 @@ for my $container (@running_containers) {
 
     my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
 
+    # Тут мы читаем псевдо-файла /proc/CT_INIT_PID/net/*, так как там содержатся все соединения для данного контейнера,
+    # а вовсе не соединения для данного процесса
+
     my $connections = read_all_namespace_connections($container_init_process_pid_on_node);
     my $inode_to_socket = build_inode_to_socket_lookup_table($connections);
 
@@ -242,15 +245,7 @@ for my $container (@running_containers) {
    
     check_orphan_connections($container, $inode_to_socket);
 
-    # Получаем шаблон контейнера
-    # TODO: обращаю внимание, что он может БЫТЬ НЕКОРРЕКТНЫЙ!!!
-    # my $container_template = `/usr/sbin/vzlist -H -oostemplate $container`;
-    # chomp $container_template;
-
     my @container_ips = get_ips_for_container($container);
-
-    # Тут мы читаем псевдо-файла /proc/CT_INIT_PID/net/*, так как там содержатся все соединения для данного контейнера,
-    # а вовсе не соединения для данного процесса
 
     my $init_elf_info = `cat /proc/$container_init_process_pid_on_node/exe | file -`;
     chomp $init_elf_info;
@@ -285,21 +280,28 @@ for my $container (@running_containers) {
             next;
         } 
 
-        # Вызываем последовательно все указанные функции для каждого процесса
-        for my $check_function_name ( keys %$process_checks ) {
-            # Если процесс перестал существовать во время проверки, то, увы, мы переходим к следующему
-            unless (-e "/proc/$pid") {
-                next PROCESSES_LOOP;
-            }
- 
-            #print "We call function $check_function_name for process $pid\n";
-            my $sub_ref = $process_checks->{$check_function_name};
-            $sub_ref->($pid, $status);
-        }
-     
+        call_process_checks($pid, $status); 
     }
 
 } # for my $container
+
+# Запускаем все проверки для контейнера
+sub call_process_checks {
+    my ($pid, $status, $inode_to_socket) = @_;
+
+    # Вызываем последовательно все указанные функции для каждого процесса
+    for my $check_function_name ( keys %$process_checks ) {
+        # Если процесс перестал существовать во время проверки, то, увы, мы переходим к следующему
+        unless (-e "/proc/$pid") {
+            return "";
+        }
+
+        #print "We call function $check_function_name for process $pid\n";
+        my $sub_ref = $process_checks->{$check_function_name};
+        $sub_ref->($pid, $status, $inode_to_socket);
+    }
+}
+
 
 # Обработка обычного сервера
 sub process_standard_linux_server {
@@ -384,18 +386,8 @@ sub process_standard_linux_server {
             next;
         }
 
-        # Вызываем последовательно все указанные функции для каждого процесса
-        for my $check_function_name ( keys %$process_checks ) {
-            # Если процесс перестал существовать во время проверки, то, увы, мы переходим к следующему
-            unless (-e "/proc/$pid") {
-                next PROCESSES_LOOP;
-            }
 
-            #print "We call function $check_function_name for process $pid\n";
-            my $sub_ref = $process_checks->{$check_function_name};
-            $sub_ref->($pid, $status, $inode_to_socket);
-        }
-
+        call_process_checks($pid, $status, $inode_to_socket);
     }
 }
 
@@ -1024,6 +1016,7 @@ sub get_url_basedir {
     return $result_url;
 }
 
+# Проверить бинарный файл антииврусом ClamAV
 sub check_binary_with_clamd {
     my ($pid, $status) = @_;
 
