@@ -214,9 +214,9 @@ my $processes_rules = {
 #    $execute_full_hash_validation = 1; 
 
 if (scalar @ARGV == 0 ) {
-    print "Start scanning hardware server\n";
+    #print "Start scanning hardware server\n";
     process_standard_linux_server();
-    print "Finish scanning hardware server\n";
+    #print "Finish scanning hardware server\n";
 }
 
 
@@ -332,21 +332,21 @@ sub build_process_tree {
 
         my $parent = $server_processes_pids->{ $status->{PPid} };
 
-        print "process: $status->{Name}\n\n";
+        #print "process: $status->{Name}\n";
         # $status->{PPid}" . " parent: $parent->{Name}\n";
         for my $fd (@{ $status->{fast_fds} }) {
             if ($fd->{type} eq 'tcp' or $fd->{type} eq 'udp') { 
                 print connection_pretty_print($fd->{connection}) . "\n";
             } elsif ($fd->{type} eq 'file') {
                 unless( $good_opened_files->{ $fd->{path} } ) {
-                    print "file: $fd->{path}\n";
+                    #print "file: $fd->{path}\n";
                 }
             } else {
                 # another connections
             }
         }
 
-        print '#' x 10, "\n";
+        #print '#' x 10, "\n";
         #print get_printable_process_status($pid, $server_processes_pids->{$pid}) . "\n";
     }
 }
@@ -365,6 +365,11 @@ sub get_server_processes {
 
         # skip pseudo .. and .
         if ($pid =~ m/^\.+$/) {
+            next PROCESSES_LOOP;
+        }
+
+        # Exclude this script
+        if ($pid eq $$) {
             next PROCESSES_LOOP;
         }
 
