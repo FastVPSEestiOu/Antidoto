@@ -596,7 +596,7 @@ sub print_process_warning {
     }
 
     print "We got warning about process" ."$container_data: '$text'\n" .
-        "pid: $pid name: $status->{Name}  uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
+        "pid: $pid name: $status->{Name} ppid: $status->{Ppid} uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
         "exe path: $status->{fast_exe}\n" .
         "cwd: $status->{fast_cwd}\n" .
         "cmdline: $status->{fast_cmdline}\n\n";
