@@ -5,6 +5,9 @@ use warnings;
 
 use Data::Dumper;
 
+# yum install -y perl-Tree-Simple
+#use Tree::Simple;
+
 # Для доступа к переменным: S_ISUID и S_ISGID
 use Fcntl ":mode";
 
@@ -83,6 +86,8 @@ my $good_opened_files = {
     '/dev/urandom' => 1,
     '/dev/random'  => 1,
     '/dev/stdin'   => 1,
+    '/dev/ptmx'    => 1,
+    '/dev/pts/1'   => 1,
 };
 
 # cwd, которые не стоит считать подозрительными
@@ -305,11 +310,44 @@ sub process_standard_linux_server {
     # а если работаме на железе без виртулизации и прочего - получим просто список процессов
     my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => 0 } );
 
+    ### TODO: дописать
+    #### build_process_tree($server_processes_pids);
+
     PROCESSES_LOOP:
     for my $pid (keys %$server_processes_pids) {
         my $status = $server_processes_pids->{$pid};
-
+    
         call_process_checks($pid, $status, $inode_to_socket);
+    }
+}
+
+sub build_process_tree {
+    my $server_processes_pids = shift;
+
+    # Вершина дерева - нулевой pid, это ядро
+    #my $tree = Tree::Simple->new("0", Tree::Simple->ROOT);
+
+    for my $pid (keys %$server_processes_pids) {
+        my $status = $server_processes_pids->{$pid};
+
+        my $parent = $server_processes_pids->{ $status->{PPid} };
+
+        print "process: $status->{Name}\n\n";
+        # $status->{PPid}" . " parent: $parent->{Name}\n";
+        for my $fd (@{ $status->{fast_fds} }) {
+            if ($fd->{type} eq 'tcp' or $fd->{type} eq 'udp') { 
+                print connection_pretty_print($fd->{connection}) . "\n";
+            } elsif ($fd->{type} eq 'file') {
+                unless( $good_opened_files->{ $fd->{path} } ) {
+                    print "file: $fd->{path}\n";
+                }
+            } else {
+                # another connections
+            }
+        }
+
+        print '#' x 10, "\n";
+        #print get_printable_process_status($pid, $server_processes_pids->{$pid}) . "\n";
     }
 }
 
@@ -595,12 +633,16 @@ sub print_process_warning {
         $container_data = " from CT: $status->{envID}";
     }
 
-    print "We got warning about process" ."$container_data: '$text'\n" .
-        "pid: $pid name: $status->{Name} ppid: $status->{Ppid} uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
+    print "We got warning about process" ."$container_data: '$text'\n" . get_printable_process_status($pid, $status) . "\n\n";
+}
+
+sub get_printable_process_status {
+    my ($pid, $status) = @_;
+    
+    return  "pid: $pid name: $status->{Name} ppid: $status->{PPid} uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
         "exe path: $status->{fast_exe}\n" .
         "cwd: $status->{fast_cwd}\n" .
-        "cmdline: $status->{fast_cmdline}\n\n";
-        
+        "cmdline: $status->{fast_cmdline}"; 
 }
 
 # Проверка истинности процесса - тот ли он, за кого себя выдает 
@@ -868,13 +910,14 @@ sub get_process_connections {
             }
 
             unless ($found_socket) {
-                push @$process_connections, { type => 'unknown' }
+                push @$process_connections, { type => 'unknown', raw_data => "$target" };
+                next FILE_DESCRIPTORS_LOOP;
             }
+        } else {
+            # уберем префикс уровня ноды, чтобы получить данные внутри контейнера
+            $target =~ s#/vz/root/\d+/?#/#g;
+            push @$process_connections, { type => 'file', path => $target }
         }
-
-        # уберем префикс уровня ноды, чтобы получить данные внутри контейнера
-        $target =~ s#/vz/root/\d+/?#/#g;
-        push @$process_connections, { type => 'file', path => $target };
     }
 
     return $process_connections;
