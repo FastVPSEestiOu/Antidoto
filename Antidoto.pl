@@ -1036,14 +1036,21 @@ sub check_binary_with_clamd {
         $scan_result = $1;
     }
 
+    # Это похожа на ложно положительные срабатывания ClamAV
     my $exclude_codes = {
         "Heuristics.Broken.Executable" => 1,
     };
 
-    if ($scan_result && ($scan_result eq 'OK' or $exclude_codes->{ $scan_result } )) {
+    if ($scan_result && $scan_result eq 'OK') {
         # все ок!
     } else {
-        print_process_warning($pid, $status, "We found a virus: $scan_result");
+        my $virus_name = $scan_result;
+        $virus_name =~ s/\s+FOUND//;
+        
+        # Исключаем ложно положительные и сообщаем о вирусе
+        unless ($exclude_codes->{ $virus_name } ) { 
+            print_process_warning($pid, $status, "We found a virus: $scan_result");
+        }
     }
 }
 
