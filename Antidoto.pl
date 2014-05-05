@@ -457,7 +457,7 @@ sub get_server_processes_detailed {
     for my $pid (@process_pids) {
         my $status = get_proc_status($pid);
 
-        unless ($status) {
+        unless ($status && keys %$status > 0) {
             next;
         }
 
@@ -544,6 +544,15 @@ sub process_status {
     $status->{fast_cwd} = readlink($cwd_path);
     $status->{fast_exe} = readlink($exe_path);
 
+    unless (defined($status->{fast_cwd})) {
+        $status->{fast_cwd} = '';
+    }    
+
+    unless (defined($status->{fast_exe})) {
+        $status->{fast_exe} = '';
+    }    
+
+
     # в exe может быть еще вот такое чудо:  ' (deleted)/opt/php5/bin/php-cgi'
 
     # Для кучи контейнеров cwd прописан вот так /vz/root/54484 то есть с уровня ноды, а нам это не нужно,
@@ -586,8 +595,7 @@ sub check_dirs_with_whitespaces {
         for my $file (@files) {
             # Хакеры очень любят пробельные имена, три точки или "скрытые" - начинающиеся с точки
             if ($file =~ /^\s+$/ or $file =~ /^\.{3,}$/ or $file =~ /^\./) {
-
-                if (-f "$temp_folder/$file") {
+                if (-f "$temp_folder/$file" && get_file_size("$temp_folder/$file") > 0) {
                     if ($ctid) {
                         warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
                     } else {
@@ -1453,6 +1461,7 @@ sub get_init_pid_for_container {
     # Более правильный путь перебрать все процессы и найти того, у которого vpid = 1 (это pid внутри контейнера)
     for my $pid_for_checking_init (@$all_container_processes) {
         my $status_info = get_proc_status($pid_for_checking_init);
+
         if ($status_info->{VPid} eq 1) {
             #print "We found init for $container: $pid_for_checking_init!\n";
             $container_init_process_pid_on_node = $pid_for_checking_init;
@@ -1809,13 +1818,22 @@ sub check_orphan_connections {
                 if (in_array($orphan_socket->{connection}->{state}, @normal_tcp_states_for_orphan_sockets)) {
                     next;
                 } 
+
             }
 
-            if ($container) {
-                warn "Orphan socket in: $container type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
-            } else {
-                warn "Orphan socket type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
-            }    
+            if ($orphan_socket->{type} eq 'tcp' or $orphan_socket->{type} eq 'udp') {
+                if ($blacklist_listen_ports->{ $orphan_socket->{connection}->{rem_port} } or
+                    $orphan_socket->{connection}->{local_port} ) {
+
+                    if ($container) {
+                        warn "Orphan socket TO/FROM DANGER port in: $container type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
+                    } else {
+                        warn "Orphan socket TO/FROM DANGER port type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
+                    }    
+                }
+    
+            }
+            
         }    
     }    
 
@@ -1847,6 +1865,15 @@ sub in_array {
     my ($elem, @array) = @_; 
 
     return scalar grep { $elem eq $_ } @array;  
+}
+
+# Получить размер файла
+sub get_file_size {
+    my $path = shift;
+
+    my $size = (stat $path)[7];
+    
+    return $size;
 }
 
 1;
