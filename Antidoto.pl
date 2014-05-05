@@ -214,6 +214,10 @@ if (scalar @ARGV == 0 ) {
     print "Finish scanning hardware server\n";
 }
 
+
+# die "Programm terminated for debug purposes\n";
+
+
 # В случае OpenVZ ноды мы обходим все контейнеры
 for my $container (@running_containers) {
     if ($container eq '1' or $container eq '50') {
@@ -221,12 +225,14 @@ for my $container (@running_containers) {
         next;
     }
 
-    my @ct_processes_pids = read_file_contents_to_list("/proc/vz/fairsched/$container/tasks");
 
-    my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
+    my @ct_processes_pids = read_file_contents_to_list("/proc/vz/fairsched/$container/tasks");
 
     # Тут мы читаем псевдо-файла /proc/CT_INIT_PID/net/*, так как там содержатся все соединения для данного контейнера,
     # а вовсе не соединения для данного процесса
+
+    # TODO: ВЫПИЛИТЬ дублированное получение pid
+    my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
 
     my $connections = read_all_namespace_connections($container_init_process_pid_on_node);
     my $inode_to_socket = build_inode_to_socket_lookup_table($connections);
@@ -245,45 +251,16 @@ for my $container (@running_containers) {
    
     check_orphan_connections($container, $inode_to_socket);
 
-    my @container_ips = get_ips_for_container($container);
-
-    my $init_elf_info = `cat /proc/$container_init_process_pid_on_node/exe | file -`;
-    chomp $init_elf_info;
-
-    my $container_architecture = get_architecture_by_file_info_output($init_elf_info);
+    my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => $container } );
 
     PROCESSES_LOOP:
-    for my $pid (@ct_processes_pids) {
-        # Обязательно проверяем, чтобы псевдо-файл существовал
-        # Если его нету, то это означает ни что иное, как остановку процесса 
-        unless (-e "/proc/$pid") {
-            next;
-        }
- 
-        my $status = get_proc_status($pid); 
-
-        unless ($status) {
-            warn "Can't read status for process: $pid";
-            next PROCESSES_LOOP;
-        }
-
-        # Добавляем параметр "архитектура хост контейнера"
-        $status->{fast_container_architecture} = $container_architecture;
-        
-        # Добавляем псевдо параметр - local_ips, это локальные IP контейнера
-        $status->{fast_local_ips} = [ @container_ips ];
-
-        $status = process_status($pid, $status, $inode_to_socket);
-
-        # Таким хитрым образом мы можем скрывать системные процессы ядра
-        unless (defined($status->{fast_cmdline})) {
-            next;
-        } 
+    for my $pid (keys %$server_processes_pids) {
+        my $status = $server_processes_pids->{$pid};
 
         call_process_checks($pid, $status); 
     }
 
-} # for my $container
+}
 
 # Запускаем все проверки для контейнера
 sub call_process_checks {
@@ -305,13 +282,13 @@ sub call_process_checks {
 
 # Обработка обычного сервера
 sub process_standard_linux_server {
-    my $connections = read_all_namespace_connections();
+    my $connections     = read_all_namespace_connections();
     my $inode_to_socket = build_inode_to_socket_lookup_table($connections);
 
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
-    if ($execute_full_hash_validation) {
-        build_hash_for_all_binarys('');
-    }
+    # if ($execute_full_hash_validation) {
+    #     build_hash_for_all_binarys('');
+    # }
 
     for my $check_function_name ( keys %$global_check_functions ) {
         #print "We call function $check_function_name for $container\n";
@@ -321,58 +298,16 @@ sub process_standard_linux_server {
 
     check_orphan_connections(0, $inode_to_socket);
 
-    my $init_elf_info = `cat /proc/1/exe | file -`;
-    chomp $init_elf_info;
-
     # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
     # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
 
-    my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
+    # То, что мы запрашиваем CTID 0 означает, что в случае если это OpenVZ мы получим все процессы CT 0, то есть аппаратной ноды
+    # а если работаме на железе без виртулизации и прочего - получим просто список процессов
+    my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => 0 } );
 
-    my $it_is_openvz_container = -e "/proc/user_beancounters";
-
-    my @server_processes_pids = get_server_processes();
     PROCESSES_LOOP:
-    for my $pid (@server_processes_pids) {
-        unless (-e "/proc/$pid") {
-            next;
-        }
-
-        my $status = get_proc_status($pid);
-
-        unless ($status) {
-            warn "Can't read status for process: $pid";
-            next;
-        }
-    
-        # Если мы сканируем саму по себе аппаратную OpenVZ ноду, то процессы с отличным от 0 ctid мы отбрасываем
-        if ($is_openvz_node && $status->{envID} ne '0') {
-            next;
-        }
-
-        # В случае, если со стороны ноды имеется vzctl, который инжектирован в пространство контейнера,
-        # то его exe файлы и прочее прочесть нельзя - исключаем его из рассмотрения
-        # stat /proc/14865/exe
-        # File: `/proc/14865/exe'stat: cannot read symbolic link `/proc/14865/exe': Permission denied
-        if ($it_is_openvz_container && $status->{Name} eq 'vzctl') {
-            my @stat_data = stat "/proc/$pid/exe";
-           
-            if (scalar @stat_data == 0 && $! eq 'Permission denied') {
-                # Исключаем его как процесс с ноды
-                next PROCESSES_LOOP;
-            } 
-            # И если при stat мы получаем ошибку доступа, то это правда vzctl с ноды
-        }
-
-        # Добавляем параметр "архитектура хост контейнера"
-        $status->{fast_container_architecture} = $server_architecture;
-
-        $status = process_status($pid, $status, $inode_to_socket);
-
-        # Таким хитрым образом мы можем скрывать системные процессы ядра
-        unless (defined($status->{fast_cmdline})) {
-            next;
-        }
+    for my $pid (keys %$server_processes_pids) {
+        my $status = $server_processes_pids->{$pid};
 
         call_process_checks($pid, $status, $inode_to_socket);
     }
@@ -405,6 +340,94 @@ sub get_server_processes {
     }
 
     return @processes_pids;
+}
+
+# Получить список процессов забитый информацией о них
+sub get_server_processes_detailed {
+    my $params = shift;
+
+    my $ctid = $params->{ctid};
+    my $inode_to_socket = $params->{inode_to_socket};
+    
+    my $processes = {};
+
+    my $is_openvz_node = '';
+    if (-e "/proc/user_beancounters" && -e "/proc/vz/fairsched") {
+        $is_openvz_node = '1';
+    }
+
+    my @process_pids = ();
+   
+    my $init_process_pid = 1; 
+    if ($is_openvz_node) {
+        # Да, для OpenVZ это очень удобный способ получения содержимого ноды
+        @process_pids = read_file_contents_to_list("/proc/vz/fairsched/$ctid/tasks");
+    } else {
+        @process_pids = get_server_processes();
+    }
+
+    if ($is_openvz_node) {
+        if ($ctid == 0 ) {
+            $init_process_pid = 1; 
+        } else {
+            $init_process_pid  = get_init_pid_for_container(\@process_pids);
+        }    
+    } else {
+        $init_process_pid = 1; 
+    }
+
+    
+    my @container_ips = ();
+    if ($ctid > 0) {
+        @container_ips = get_ips_for_container($ctid);
+    }
+
+    my $it_is_openvz_container = -e "/proc/user_beancounters";
+
+    my $init_elf_info = `cat /proc/$init_process_pid/exe | file -`;
+    chomp $init_elf_info;
+
+    my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
+
+    for my $pid (@process_pids) {
+        my $status = get_proc_status($pid);
+
+        unless ($status) {
+            next;
+        }
+
+        $status = process_status($pid, $status, $inode_to_socket);
+
+        # Таким хитрым образом мы можем скрывать системные процессы ядра
+        unless (defined($status->{fast_cmdline})) {
+            next;
+        }
+
+        # В случае, если со стороны ноды имеется vzctl, который инжектирован в пространство контейнера,
+        # то его exe файлы и прочее прочесть нельзя - исключаем его из рассмотрения
+        # stat /proc/14865/exe
+        # File: `/proc/14865/exe'stat: cannot read symbolic link `/proc/14865/exe': Permission denied
+        if ($it_is_openvz_container && $status->{Name} eq 'vzctl') {
+            my @stat_data = stat "/proc/$pid/exe";
+
+            if (scalar @stat_data == 0 && $! eq 'Permission denied') {
+                # Исключаем его как процесс с ноды
+                next PROCESSES_LOOP;
+            }
+            # И если при stat мы получаем ошибку доступа, то это правда vzctl с ноды
+        }
+
+
+        # Добавляем параметр "архитектура хост контейнера"
+        $status->{fast_container_architecture} = $server_architecture;
+
+        # Добавляем псевдо параметр - local_ips, это локальные IP контейнера
+        $status->{fast_local_ips} = [ @container_ips ];
+
+        $processes->{$pid} = $status;
+    }
+
+    return $processes;
 }
 
 # Получить все IP адреса, привязанные к конетейнеру
