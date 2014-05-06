@@ -149,6 +149,9 @@ my $hash_lookup_for_all_binary_files = {
     'd77fb76bcddb774a8a541dce42667b5d' => '/usr/bin/md5_pipe',
 };
 
+
+my $audit_mode = '';
+
 my $execute_full_hash_validation = 0;
 
 my $is_openvz_node = '';
@@ -262,6 +265,10 @@ for my $container (@running_containers) {
 
     my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => $container } );
 
+    if ($audit_mode) {
+        build_process_tree($server_processes_pids);
+    }  
+
     PROCESSES_LOOP:
     for my $pid (keys %$server_processes_pids) {
         my $status = $server_processes_pids->{$pid};
@@ -313,9 +320,10 @@ sub process_standard_linux_server {
     # То, что мы запрашиваем CTID 0 означает, что в случае если это OpenVZ мы получим все процессы CT 0, то есть аппаратной ноды
     # а если работаме на железе без виртулизации и прочего - получим просто список процессов
     my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => 0 } );
-
-    ### TODO: дописать
-    # build_process_tree($server_processes_pids);
+    
+    if ($audit_mode) {
+        build_process_tree($server_processes_pids);
+    }
 
     PROCESSES_LOOP:
     for my $pid (keys %$server_processes_pids) {
@@ -359,7 +367,7 @@ sub build_process_tree {
         print "process: $status->{Name} $status->{PPid}\n";
         for my $fd (@{ $status->{fast_fds} }) {
             if ($fd->{type} eq 'tcp' or $fd->{type} eq 'udp') { 
-                print "$fd->{type}:" . connection_pretty_print($fd->{connection}) . "\n";
+                print connection_pretty_print($fd->{connection}) . "\n";
             } elsif ($fd->{type} eq 'file') {
                 unless( $good_opened_files->{ $fd->{path} } ) {
                     #print "file: $fd->{path}\n";
@@ -1292,10 +1300,6 @@ sub check_changed_proc_name {
     #exe path: /sbin/syslogd
     #cmdline: syslogd -m 0 
 
-    unless ($status->{fast_cmdline}) {
-        warn "Process $pid has blank cmdline and it's very strange! Please check!";
-    }
-
     my $programm_name_possible_faked = '';
 
     if ($status->{fast_cmdline} =~ m#^/#) {
@@ -1565,6 +1569,9 @@ sub parse_udp_connections {
                 $udp_connection->{$port_type} = hex $udp_connection->{$port_type};
             }
 
+            # Псевдопеременная, для упрощения обработки впредь
+            $udp_connection->{socket_type} = 'udp';
+
             push @$udp_connections, $udp_connection;
         }
 
@@ -1623,6 +1630,9 @@ sub parse_unix_connections {
         }
 
         @$unix_connection{ 'num', 'refcount', 'protocol', 'flags', 'type', 'st', 'inode', 'path' } = @matches;
+        # Псевдопеременная, для упрощения обработки впредь
+        $unix_connection->{socket_type} = 'unix';
+
         push @$unix_connections, $unix_connection;;
     }
 
@@ -1724,6 +1734,8 @@ sub parse_tcp_connections {
             }
 
             # print Dumper($tcp_connection);
+            # Псевдопеременная, для упрощения обработки впредь
+            $tcp_connection->{socket_type} = 'tcp';
     
             push @$tcp_connections, $tcp_connection;
         }
@@ -1876,8 +1888,13 @@ sub connection_pretty_print {
     if (defined($connection->{state})) {
         $state = "state: $connection->{state}";
     }
-   
-    $print_string = "local: $connection->{local_address}:$connection->{local_port} remote: $connection->{rem_address}:$connection->{rem_port} $state";
+  
+    if ($connection->{socket_type} eq 'tcp' && $connection->{state} eq 'TCP_LISTEN') {
+        # Если это прослушка с хоста, то отобразим ее короче - remote IP тут совершенно не нужен
+        $print_string = "type: $connection->{socket_type} listen on $connection->{local_address}:$connection->{local_port}";
+    } else {
+        $print_string = "type: $connection->{socket_type} local: $connection->{local_address}:$connection->{local_port} remote: $connection->{rem_address}:$connection->{rem_port} $state";
+    }
  
     return $print_string;
 }

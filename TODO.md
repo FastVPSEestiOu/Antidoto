@@ -15,7 +15,6 @@
 - check_changed_proc_name включить по умолчанию в случае, если exe и Name отличаются кардинально, тоже самое касается cmdline
 - Проанализировать с pstree, работа с процессами без детей намного проще
 - Трижды внимательно проверять апача
-- Переписать: md5_file
 - Добавить сканер /tmp на предмет бинарных файло
 - Can't parse tcp connection line:  522: 00000000:1622 00000000:0000 0A 00000000:00000000 00:00000000 00000000    -1        0 23890959 1 ffff880a5d74c100 99 0 0 10 -1  --- это на овз16
 - Добавить проверку lsattr ом всех бинарных файликов
@@ -38,6 +37,18 @@
 # tcp        0    848 78.46.12.227:22         60.173.26.146:10697     ESTABLISHED 15051/sshd: [accept
 - Генерация сигнатур для ClamAV: http://www.clamav.net/doc/webinars/Webinar-Alain-2009-03-04.pdf
 - Как работать с prelink и как получить файл до prelink: https://access.redhat.com/site/solutions/75013
+
+Проверка анонимных прокси:
+```bash
+macbook-pavel:~ pavel_odintsov$ telnet xx.xx.xx.xx 3128
+Trying xxx.155...
+Connected to xxx
+Escape character is '^]'.
+CONNECT ya.ru HTTP/1.1
+
+HTTP/1.0 407 Proxy Authentication Required
+Server: squid/3.1.20
+```
 
 # Биндинг RPM для Perl
 ```bash

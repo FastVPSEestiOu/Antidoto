@@ -8,21 +8,12 @@ Hot to run it:
 wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl -OAntidoto.pl
 perl Antidoto.pl
 ```
-
-How to enable ClamAV checks: 
-```bash
-yum install -y clamav clamd
-freshclam
-wget http://www.rfxn.com/downloads/rfxn.ndb -O/var/lib/clamav/rfxn.ndb
-wget http://www.rfxn.com/downloads/rfxn.hdb -O/var/lib/clamav/rfxn.hdb
-
-/etc/init.d/clamd restart
-chkconfig clamd on
-```
-
 Где работает Antidoto?
 
 * Умеет работать как со стороны OpenVZ ноды для сканирования VPS, так и внутри VPS либо обычного выделенного сервера
+* CentOS 5, CentOS 6
+* Debian 5, Debian 6, Debian 7
+* Ubuntu 10.xx, 12.xx, 13.xx, 14.xx
 
 Что умеет Antidoto?
 
@@ -39,4 +30,20 @@ chkconfig clamd on
 * Сообщать о процессах, которые были запущены с использованием директивы LD_PRELOAD (подключение библиотек к ПО без линковки)
 * Сообщать о процессах, бинарные файлы которых имеют флаги SGID или SUID
 
- 
+Какие системные требования у скрипта?
+* Наличие Perl интерпретатора, никаких специализированных модулей не требуется
+* Наличие системных утилит: cat, file, md5sum
+* Для работы на физической ноде OpenVZ потребуется: vzlist
+* При использовании опциаонального режима сканирования всех exe файлов антивирусом ClamAV потребуется: clamdscan 
+
+How to enable ClamAV checks: 
+```bash
+yum install -y clamav clamd
+freshclam
+wget http://www.rfxn.com/downloads/rfxn.ndb -O/var/lib/clamav/rfxn.ndb
+wget http://www.rfxn.com/downloads/rfxn.hdb -O/var/lib/clamav/rfxn.hdb
+
+/etc/init.d/clamd restart
+chkconfig clamd on
+```
+
