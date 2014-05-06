@@ -90,6 +90,7 @@ my $good_opened_files = {
     '/dev/stdin'   => 1,
     '/dev/ptmx'    => 1,
     '/dev/pts/1'   => 1,
+    '/dev/console' => 1,
 };
 
 # cwd, которые не стоит считать подозрительными
@@ -924,6 +925,10 @@ sub get_process_connections {
         }
 
         if ($target =~ m/^(pipe):\[\d+\]/) {
+            next;
+        }
+
+        if ($target =~ m/^\[eventpoll\]$/) {
             next;
         }
 
@@ -1844,7 +1849,6 @@ sub check_orphan_connections {
             
         }    
     }    
-
 }
 
 # Красивый "принтер" tcp/udp соединений
@@ -1852,8 +1856,14 @@ sub connection_pretty_print {
     my $connection = shift;
 
     my $print_string = '';
+    my $state = '';
+
+    # state у нас применим только к tcp, к udp он не применим
+    if (defined($connection->{state})) {
+        $state = "state: $connection->{state}";
+    }
    
-    $print_string = "local: $connection->{local_address}:$connection->{local_port} remote: $connection->{rem_address}:$connection->{rem_port} state: $connection->{state}";
+    $print_string = "local: $connection->{local_address}:$connection->{local_port} remote: $connection->{rem_address}:$connection->{rem_port} $state";
  
     return $print_string;
 }
