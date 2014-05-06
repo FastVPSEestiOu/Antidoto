@@ -295,9 +295,9 @@ sub process_standard_linux_server {
     my $inode_to_socket = build_inode_to_socket_lookup_table($connections);
 
     # Собираем хэш всех бинарных файлов контейнера для последующей валидации
-    # if ($execute_full_hash_validation) {
-    #     build_hash_for_all_binarys('');
-    # }
+    if ($execute_full_hash_validation) {
+         #build_hash_for_all_binarys('');
+    }
 
     for my $check_function_name ( keys %$global_check_functions ) {
         #print "We call function $check_function_name for $container\n";
@@ -456,7 +456,7 @@ sub get_server_processes_detailed {
 
     my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
 
-    PROCESSES_LOOP;
+    PROCESSES_LOOP:
     for my $pid (@process_pids) {
         my $status = get_proc_status($pid);
 
@@ -838,7 +838,7 @@ sub check_exe_files_by_checksumm {
     my $md5 = md5_file("/proc/$pid/exe");    
 
     # Проверяем, чтобы файл был захэширован корректно
-    unless ($hash_lookup_for_all_binary_files->{$md5}) {
+    unless ($status->{fast_hash_lookup_for_all_binary_files}->{$md5}) {
         
         if ($execute_full_hash_validation) {
             if (-e "$prefix/usr/bin/dpkg") {
@@ -1088,6 +1088,8 @@ my $get_debian_package_name_by_path = {
 sub build_hash_for_all_binarys {
     my $ctid = shift;
 
+    my $hash_lookup_for_all_binary_files = {};
+
     my $prefix = '';
     if (defined($ctid) && $ctid) {
         $prefix = "/vz/root/$ctid";
@@ -1116,6 +1118,8 @@ sub build_hash_for_all_binarys {
             }
         } 
     }
+
+    return $hash_lookup_for_all_binary_files;
 }
 
 # Получить последнйи компонент URL
