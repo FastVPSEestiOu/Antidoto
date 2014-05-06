@@ -315,7 +315,7 @@ sub process_standard_linux_server {
     my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => 0 } );
 
     ### TODO: дописать
-    #### build_process_tree($server_processes_pids);
+    # build_process_tree($server_processes_pids);
 
     PROCESSES_LOOP:
     for my $pid (keys %$server_processes_pids) {
@@ -348,16 +348,18 @@ sub build_process_tree {
     # Вершина дерева - нулевой pid, это ядро
     #my $tree = Tree::Simple->new("0", Tree::Simple->ROOT);
 
-    for my $pid (keys %$server_processes_pids) {
+    # Сортировка по PID родительского процесса кажется мне самой логичной
+    for my $pid (sort {
+        $server_processes_pids->{$a}->{PPid} <=>
+        $server_processes_pids->{$b}->{PPid} } keys %$server_processes_pids) {
         my $status = $server_processes_pids->{$pid};
 
-        my $parent = $server_processes_pids->{ $status->{PPid} };
+        #my $parent = $server_processes_pids->{ $status->{PPid} };
 
-        #print "process: $status->{Name}\n";
-        # $status->{PPid}" . " parent: $parent->{Name}\n";
+        print "process: $status->{Name} $status->{PPid}\n";
         for my $fd (@{ $status->{fast_fds} }) {
             if ($fd->{type} eq 'tcp' or $fd->{type} eq 'udp') { 
-                print connection_pretty_print($fd->{connection}) . "\n";
+                print "$fd->{type}:" . connection_pretty_print($fd->{connection}) . "\n";
             } elsif ($fd->{type} eq 'file') {
                 unless( $good_opened_files->{ $fd->{path} } ) {
                     #print "file: $fd->{path}\n";
@@ -837,6 +839,11 @@ sub check_exe_files_by_checksumm {
     # рассчитаем md5, оно сработает даже для удаленного файла
     my $md5 = md5_file("/proc/$pid/exe");    
 
+    unless ($md5) {
+        warn "Can't calulate md5 for exe from process $pid\n";
+        return;
+    } 
+
     # Проверяем, чтобы файл был захэширован корректно
     unless ($status->{fast_hash_lookup_for_all_binary_files}->{$md5}) {
         
@@ -896,10 +903,12 @@ sub md5_file {
         die "md5 failed";
     }   
 
-    my $result = `md5sum $path | awk '{print \$1}'`;
+    my $result = `md5sum $path`;
     chomp($result);
 
-    return $result;
+    my $md5 = (split /\s+/, $result)[0];
+
+    return $md5;
 }
 
 # Получить все сетевые соединения процесса
