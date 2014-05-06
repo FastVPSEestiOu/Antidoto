@@ -231,6 +231,7 @@ if (scalar @ARGV == 0 ) {
 
 
 # В случае OpenVZ ноды мы обходим все контейнеры
+CONTAINERS_LOOP:
 for my $container (@running_containers) {
     if ($container eq '1' or $container eq '50') {
         # Skip PCS special containers
@@ -267,6 +268,8 @@ for my $container (@running_containers) {
 
     if ($audit_mode) {
         build_process_tree($server_processes_pids);
+        # skip checks
+        next CONTAINERS_LOOP;
     }  
 
     PROCESSES_LOOP:
@@ -323,6 +326,8 @@ sub process_standard_linux_server {
     
     if ($audit_mode) {
         build_process_tree($server_processes_pids);
+        # skip other checks
+        return;
     }
 
     PROCESSES_LOOP:
