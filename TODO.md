@@ -40,7 +40,8 @@
 - Как работать с prelink и как получить файл до prelink: https://access.redhat.com/site/solutions/75013
 
 # Биндинг RPM для Perl
-# yum install -y perl-RPM2
-#use RPM2;
-# Список пакетов perl -e 'use RPM2;  my $db = RPM2->open_rpm_db();  my $i = $db->find_all_iter();  my @packages_list=();while (my $pkg = $i->next) {  print $pkg->as_nvre, "\n"; push @packages_list, $pkg->as_nvre }'
-
+```bash
+yum install -y perl-RPM2
+use RPM2;
+Список пакетов perl -e 'use RPM2;  my $db = RPM2->open_rpm_db();  my $i = $db->find_all_iter();  my @packages_list=();while (my $pkg = $i->next) {  print $pkg->as_nvre, "\n"; push @packages_list, $pkg->as_nvre }'
+```
