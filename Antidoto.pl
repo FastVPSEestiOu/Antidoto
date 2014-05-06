@@ -454,10 +454,11 @@ sub get_server_processes_detailed {
 
     my $server_architecture = get_architecture_by_file_info_output($init_elf_info);
 
+    PROCESSES_LOOP;
     for my $pid (@process_pids) {
         my $status = get_proc_status($pid);
 
-        unless ($status && keys %$status > 0) {
+        unless ($status) {
             next;
         }
 
@@ -1335,6 +1336,10 @@ sub get_proc_status {
     my @array = read_file_contents_to_list("/proc/$pid/status");
     my $status = {};
 
+    unless  (scalar @array > 0) { 
+        return '';
+    }
+
     for my $line (@array) {
         my @data = split /:\s+/, $line, 2;
         $status->{$data[0]} = $data[1];
@@ -1350,7 +1355,6 @@ sub read_file_contents {
     my $res = open my $fl, "<", $path;
 
     unless ($res) {
-        warn "Can't read $path\n";
         return '';
     }
 
@@ -1461,6 +1465,10 @@ sub get_init_pid_for_container {
     # Более правильный путь перебрать все процессы и найти того, у которого vpid = 1 (это pid внутри контейнера)
     for my $pid_for_checking_init (@$all_container_processes) {
         my $status_info = get_proc_status($pid_for_checking_init);
+
+        unless ($status_info) {
+            next;
+        }
 
         if ($status_info->{VPid} eq 1) {
             #print "We found init for $container: $pid_for_checking_init!\n";
@@ -1823,7 +1831,7 @@ sub check_orphan_connections {
 
             if ($orphan_socket->{type} eq 'tcp' or $orphan_socket->{type} eq 'udp') {
                 if ($blacklist_listen_ports->{ $orphan_socket->{connection}->{rem_port} } or
-                    $orphan_socket->{connection}->{local_port} ) {
+                    $blacklist_listen_ports->{ $orphan_socket->{connection}->{local_port} }) {
 
                     if ($container) {
                         warn "Orphan socket TO/FROM DANGER port in: $container type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
