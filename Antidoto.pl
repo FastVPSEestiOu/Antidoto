@@ -90,6 +90,7 @@ my $good_opened_files = {
     '/dev/stdin'   => 1,
     '/dev/ptmx'    => 1,
     '/dev/pts/1'   => 1,
+    '/dev/pts/0'   => 1,
     '/dev/console' => 1,
 };
 
@@ -928,7 +929,7 @@ sub get_process_connections {
             next;
         }
 
-        if ($target =~ m/^\[eventpoll\]$/) {
+        if ($target =~ m/^\[(?:eventpoll|timerfd)\]$/) {
             next;
         }
 
