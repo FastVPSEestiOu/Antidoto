@@ -1021,50 +1021,32 @@ sub check_process_open_fd {
         if ($connection->{type} eq 'unknown') {
             # TODO:
             next CONNECTIONS_LOOP;
-        } elsif ($connection->{type} eq 'udp') {
-            my $udp_connection = $connection->{connection};
+        } elsif (in_array($connection->{type}, ('udp', 'tcp') ) ) {
+            my $connection = $connection->{connection};
 
-            if ( ($udp_connection->{local_address} eq '0.0.0.0' or $udp_connection->{local_address} =~ /^127\.0\.0\.\d+$/) or $udp_connection->{rem_address} eq '0.0.0.0' ) { 
-                # listen  udp socket!!!
-
-                if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{local_port} }) {
-                    print_process_warning($pid, $status, "process connected to  DANGER ($port_description) port $udp_connection->{local_port}");
-                }
-            } else {
-                # client udp socket
-                if (my $port_description = $blacklist_listen_ports->{ $udp_connection->{rem_port} }) {
-                    print_process_warning($pid, $status, "process connected to DANGER ($port_description) port $udp_connection->{rem_port}");
-                }
-            }
-        } elsif ($connection->{type} eq 'tcp') {
-            my $tcp_connection = $connection->{connection};
-
-            if ($tcp_connection->{state} eq 'TCP_LISTEN') {
-                my $local_port = $tcp_connection->{local_port};
-                my $local_address = $tcp_connection->{local_address};
+            if (is_listen_connection($connection)) {
+                # listen  socket
 
                 # Если тот или иной софт забинден на локалхост, то он нас не интересует
-                if (is_loopback_address($local_address)) {
+                if (is_loopback_address($connection->{local_address})) {
                     next CONNECTIONS_LOOP;
-                }
+                }    
 
-                if (my $port_description = $blacklist_listen_ports->{ $local_port } ) {
-                    print "Pid $pid from CT $status->{envID} listens DANGER PORT $local_port ($port_description)!!! PLEASE CHECK THIS PROCESS\n";
+                if (my $port_description = $blacklist_listen_ports->{ $connection->{local_port} }) {
+                    print_process_warning($pid, $status, "process listens DANGER ($port_description) $connection->{socket_type} port $connection->{local_port}");
                 }
             } else {
-                # client connection
-
-                my $remote_port = $tcp_connection->{rem_port};
-                my $remote_host = $tcp_connection->{rem_address};
-
                 # Это может быть внутренее соединение, которое не интересно нам при анализе
-                if (is_loopback_address($remote_host)) {
+                if (is_loopback_address($connection->{rem_address})) {
                     next CONNECTIONS_LOOP;
                 }
 
-                $connections_to_remote_servers->{ $remote_port } ++; 
-                if (my $blacklist_port_description = $blacklist_listen_ports->{ $remote_port } ) {
-                    print "Pid $pid from CT $status->{envID} has connection to DANGER PORT $remote_port ($blacklist_port_description) to host $remote_host!!! PLEASE CHECK THIS PROCESS\n"; 
+                # Увеличим посчитаем число соединений на удаленные машины с детализацией по портам
+                $connections_to_remote_servers->{ $connection->{rem_port} } ++; 
+
+                # client socket
+                if (my $port_description = $blacklist_listen_ports->{ $connection->{rem_port} }) {
+                    print_process_warning($pid, $status, "process connected to DANGER ($port_description) $connection->{socket_type} port $connection->{rem_port} to the server $connection->{rem_address}");
                 }
             }
         }
@@ -1904,7 +1886,7 @@ sub is_listen_connection {
 
     # А вот у UDP сэтим проблемы, нужно определять по внешним признакам
     if ($connection->{socket_type} eq 'udp') {
-        if ($connection->{rem_address} eq '0.0.0.0' && $connection->{rem_port} eq '0') {
+        if ( ($connection->{rem_address} eq '0.0.0.0' or $connection->{rem_address} eq '0:0:0:0:0:0:0:0' ) && $connection->{rem_port} eq '0') {
             return 1;
         } 
     }
