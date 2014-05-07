@@ -38,6 +38,9 @@
 - Генерация сигнатур для ClamAV: http://www.clamav.net/doc/webinars/Webinar-Alain-2009-03-04.pdf
 - Как работать с prelink и как получить файл до prelink: https://access.redhat.com/site/solutions/75013
 
+TODO audit mode:
+- Схлопывать похожие по basedir пути
+
 Проверка анонимных прокси:
 ```bash
 macbook-pavel:~ pavel_odintsov$ telnet xx.xx.xx.xx 3128
