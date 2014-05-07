@@ -18,7 +18,8 @@ my $blacklist_listen_ports = {
     6666  => 'irc',
     6667  => 'irc alternative',
     9050  => 'tor',
-    36008 => 'botnet melinda & bill gates', # botnet melinda & bill gates https://github.com/ValdikSS/billgates-botnet-tracker/blob/master/gates/gates.py
+    # botnet melinda & bill gates https://github.com/ValdikSS/billgates-botnet-tracker/blob/master/gates/gates.py
+    36008 => 'botnet melinda & bill gates',
 };
 
 my $whitelist_listen_udp_ports = {
@@ -59,6 +60,7 @@ my $binary_which_can_be_suid = {
     '/usr/sbin/exim4' => 1,
     '/usr/sbin/exim' => 1, # Centos exim
     '/bin/su' => 1,
+    '/usr/bin/su' => 1,
     '/usr/lib/sm.bin/sendmail' => 1,
     '/usr/sbin/sendmail.sendmail' => 1,
     '/usr/bin/screen' => 1,
@@ -150,6 +152,7 @@ my $hash_lookup_for_all_binary_files = {
 };
 
 
+# режима аудита, когда мы печатаем всю возможную извлеченную информацию о процессах
 my $audit_mode = '';
 
 my $execute_full_hash_validation = 0;
@@ -200,14 +203,15 @@ my $process_checks = {
     check_exe_files_by_checksumm => \&check_exe_files_by_checksumm,
     check_process_open_fd => \&check_process_open_fd,
     check_32bit_software_on_64_bit_server => \&check_32bit_software_on_64_bit_server,
-    # check_binary_with_clamd => \&check_binary_with_clamd,
     check_ld_preload => \&check_ld_preload,
     check_suid_exe => \&check_suid_exe,
     check_process_parents => \&check_process_parents,
+    # check_binary_with_clamd => \&check_binary_with_clamd,
     # check_changed_proc_name => \&check_changed_proc_name,
     # check_cwd => \&check_cwd,
 };
 
+# TODO: реализовать
 # Правила, описывающие поведение процессов
 my $processes_rules = {
     'apache_debian' => {
@@ -224,12 +228,7 @@ my $processes_rules = {
 # Для отдельного сервера вполне посильная задача собрать ключевые суммы
 #    $execute_full_hash_validation = 1; 
 
-#print "Start scanning hardware server\n";
 process_standard_linux_server();
-#print "Finish scanning hardware server\n";
-
-# die "Programm terminated for debug purposes\n";
-
 
 # В случае OpenVZ ноды мы обходим все контейнеры
 CONTAINERS_LOOP:
@@ -349,42 +348,87 @@ sub parse_passwd_file {
     for my $line (@lines) {
         # ftp:x:14:50:FTP User:/var/ftp:/sbin/nologin 
         my @data = split /:/, $line;
-    
-        $users->{$data[0] } = {  uid => $data[2], gid => $data[3], description => $data[4], home => $data[5], shell => $data[6] };
+  
+        # Дублирования происходить не должно ни при каком условии 
+        if (defined($users->{ $data[0] } ) ) {
+            warn "Duplicate username $data[0] in file $path\n";
+        }
+ 
+        $users->{ $data[0] } = {  uid => $data[2], gid => $data[3], description => $data[4], home => $data[5], shell => $data[6] };
     }
 
     return $users;
 }
 
+# Главная рабочая функция режима audit, отображаем всю возможную информацию по процессу
 sub build_process_tree {
     my $server_processes_pids = shift;
 
     # Эту функцию стоит параметризировать в будущем через командную строку
-    my $params = {
+    my $audit_params = {
         #show_local_listens => 1,
-        #show_tcp => 1,
-        #show_udp => 1,
-        show_open_files => 1,
+        not_show_whitelisted_listen_ports => 1, # Не отображать прослушку стандартных портов
+        show_tcp => 1, # отображаться все связанное с tcp
+        show_udp => 1, # отображаться все связанное с udp
+        show_local_connections => 0, # отображаться tcp/udp соединения с/на localhost
+        show_listen_tcp => 1, # отображать слушающие tcp сокеты
+        show_listen_udp => 1, # отображать слушающие udp сокеты
+        show_client_tcp => 1, # отображать клиентские tcp сокеты
+        show_client_udp => 1, # отображать клиентские udp сокеты
+        show_open_files => 0, # отображать открытые файлы всех приложений
     };
 
     # Вершина дерева - нулевой pid, это ядро
     #my $tree = Tree::Simple->new("0", Tree::Simple->ROOT);
 
     # Сортировка по PID родительского процесса кажется мне самой логичной
-    for my $pid (sort {
+    my @sorted_pids = sort {
         $server_processes_pids->{$a}->{PPid} <=>
-        $server_processes_pids->{$b}->{PPid} } keys %$server_processes_pids) {
+        $server_processes_pids->{$b}->{PPid}
+    } keys %$server_processes_pids;
+
+    for my $pid (@sorted_pids) {
         my $status = $server_processes_pids->{$pid};
 
         #my $parent = $server_processes_pids->{ $status->{PPid} };
 
-        print "process: $status->{Name} $status->{PPid}\n";
-        for my $fd (@{ $status->{fast_fds} }) {
-            if ($fd->{type} eq 'tcp' or $fd->{type} eq 'udp') { 
-                print connection_pretty_print($fd->{connection}) . "\n";
+        print get_printable_process_status($pid, $status) . "\n";
+
+        my @sorted_fds = sort { $a->{type} cmp $b->{type} } @{ $status->{fast_fds} };
+
+        if (scalar @sorted_fds > 0) {
+            print "\n";
+        }
+
+        # Сортируем по типу перед отображением 
+        for my $fd (@sorted_fds) {
+            if ($fd->{type} eq 'tcp') {
+                if ($audit_params->{show_tcp}) {
+                    if (is_listen_connection($fd->{connection}) ) {
+                        my $it_is_whitelisted_connection = $whitelist_listen_tcp_ports->{ $fd->{connection}->{local_port} };
+                        
+                        if ($audit_params->{show_listen_tcp}) { 
+                            print connection_pretty_print($fd->{connection}) . "\n";
+                        }
+                    } else {
+                        print connection_pretty_print($fd->{connection}) . "\n" if $audit_params->{show_client_tcp};
+                    } 
+                }
+            } elsif ($fd->{type} eq 'udp') {
+                if ($audit_params->{show_udp}) {
+                    if (is_listen_connection($fd->{connection}) ) {
+                        my $it_is_whitelisted_connection = $whitelist_listen_udp_ports->{ $fd->{connection}->{local_port} };
+
+                        if ($audit_params->{show_listen_udp}) {
+                            print connection_pretty_print($fd->{connection}) . "\n";
+                        }
+                    } else {
+                        print connection_pretty_print($fd->{connection}) . "\n" if $audit_params->{show_client_udp};
+                    }
+                }
             } elsif ($fd->{type} eq 'file') {
                 unless( $good_opened_files->{ $fd->{path} } ) {
-                    if ($params->{show_open_files}) {
+                    if ($audit_params->{show_open_files}) {
                         print "file: $fd->{path}\n";
                     }
                 }
@@ -393,8 +437,7 @@ sub build_process_tree {
             }
         }
 
-        #print '#' x 10, "\n";
-        #print get_printable_process_status($pid, $server_processes_pids->{$pid}) . "\n";
+        print "\n\n";
     }
 }
 
@@ -962,7 +1005,7 @@ sub get_process_connections {
             next;
         }
 
-        if ($target =~ m/^\[(?:eventpoll|timerfd)\]$/) {
+        if ($target =~ m/^\[(?:eventpoll|timerfd|eventfd|signalfd)\]$/) {
             next;
         }
 
@@ -1863,9 +1906,11 @@ sub check_orphan_connections {
                     $blacklist_listen_ports->{ $orphan_socket->{connection}->{local_port} }) {
 
                     if ($container) {
-                        warn "Orphan socket TO/FROM DANGER port in: $container type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
+                        warn "Orphan socket TO/FROM DANGER port in: $container type $orphan_socket->{type}: " .
+                            connection_pretty_print($orphan_socket->{connection}) . "\n";
                     } else {
-                        warn "Orphan socket TO/FROM DANGER port type $orphan_socket->{type}: " . connection_pretty_print($orphan_socket->{connection}) . "\n";
+                        warn "Orphan socket TO/FROM DANGER port type $orphan_socket->{type}: " .
+                            connection_pretty_print($orphan_socket->{connection}) . "\n";
                     }    
                 }
     
@@ -1927,6 +1972,7 @@ sub is_loopback_address {
     return '';
 }
 
+# Проверка принадлежности элемента массиву
 sub in_array {
     my ($elem, @array) = @_; 
 
