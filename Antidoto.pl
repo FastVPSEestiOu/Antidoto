@@ -13,17 +13,18 @@ use Fcntl ":mode";
 
 # Эту функцию стоит параметризировать в будущем через командную строку
 my $audit_params = {
-    #show_local_listens => 1,
-    show_tcp => 1, # отображаться все связанное с tcp
-    show_udp => 1, # отображаться все связанное с udp
-    show_local_connections => 0, # отображаться tcp/udp соединения с/на localhost
+    show_process_information => 1,    # отображать информацию о процессах
+    show_tcp => 1,                    # отображаться все связанное с tcp
+    show_udp => 1,                    # отображаться все связанное с udp
     show_whitelisted_listen_tcp => 1, # отображать прослушиваемые сокеты даже если они в белом списке 
     show_whitelisted_listen_udp => 1, # отображать прослушиваемые сокеты даже если они в белом списке 
-    show_listen_tcp => 1, # отображать слушающие tcp сокеты
-    show_listen_udp => 1, # отображать слушающие udp сокеты
-    show_client_tcp => 1, # отображать клиентские tcp сокеты
-    show_client_udp => 1, # отображать клиентские udp сокеты
-    show_open_files => 0, # отображать открытые файлы всех приложений
+    show_listen_tcp => 1,             # отображать слушающие tcp сокеты
+    show_listen_udp => 1,             # отображать слушающие udp сокеты
+    show_client_tcp => 1,             # отображать клиентские tcp сокеты
+    show_client_udp => 1,             # отображать клиентские udp сокеты
+    show_local_tcp_connections => 1,  # отображать локальные tcp соединения 
+    show_local_udp_connections => 1,  # отображать локлаьные udp соединения
+    show_open_files => 1 ,            # отображать открытые файлы всех приложений
 };  
 
 # Также добавить белый список прослушиваемых портов и врубать анализ по нему в особо суровых случаях
@@ -391,17 +392,18 @@ sub build_process_tree {
     for my $pid (@sorted_pids) {
         my $status = $server_processes_pids->{$pid};
 
-        #my $parent = $server_processes_pids->{ $status->{PPid} };
-
-        print get_printable_process_status($pid, $status) . "\n";
-
         my @sorted_fds = sort { $a->{type} cmp $b->{type} } @{ $status->{fast_fds} };
 
-        if (scalar @sorted_fds > 0) {
-            print "\n";
+        if ($audit_params->{show_process_information}) {
+            print get_printable_process_status($pid, $status) . "\n";
+
+            if (scalar @sorted_fds > 0) { 
+                print "\n";
+            }     
         }
 
-        # Сортируем по типу перед отображением 
+        # Сортируем по типу перед отображением
+        FDS_LOOP: 
         for my $fd (@sorted_fds) {
             if ($fd->{type} eq 'tcp') {
                 if ($audit_params->{show_tcp}) {
@@ -458,7 +460,9 @@ sub build_process_tree {
             }
         }
 
-        print "\n\n";
+        if ($audit_params->{show_process_information}) {
+            print "\n\n";
+        }
     }
 }
 
