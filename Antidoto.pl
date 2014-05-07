@@ -11,6 +11,21 @@ use Data::Dumper;
 # Для доступа к переменным: S_ISUID и S_ISGID
 use Fcntl ":mode";
 
+# Эту функцию стоит параметризировать в будущем через командную строку
+my $audit_params = {
+    #show_local_listens => 1,
+    show_tcp => 1, # отображаться все связанное с tcp
+    show_udp => 1, # отображаться все связанное с udp
+    show_local_connections => 0, # отображаться tcp/udp соединения с/на localhost
+    show_whitelisted_listen_tcp => 1, # отображать прослушиваемые сокеты даже если они в белом списке 
+    show_whitelisted_listen_udp => 1, # отображать прослушиваемые сокеты даже если они в белом списке 
+    show_listen_tcp => 1, # отображать слушающие tcp сокеты
+    show_listen_udp => 1, # отображать слушающие udp сокеты
+    show_client_tcp => 1, # отображать клиентские tcp сокеты
+    show_client_udp => 1, # отображать клиентские udp сокеты
+    show_open_files => 0, # отображать открытые файлы всех приложений
+};  
+
 # Также добавить белый список прослушиваемых портов и врубать анализ по нему в особо суровых случаях
 my $blacklist_listen_ports = {
     1080  => 'socks proxy',
@@ -364,20 +379,6 @@ sub parse_passwd_file {
 sub build_process_tree {
     my $server_processes_pids = shift;
 
-    # Эту функцию стоит параметризировать в будущем через командную строку
-    my $audit_params = {
-        #show_local_listens => 1,
-        not_show_whitelisted_listen_ports => 1, # Не отображать прослушку стандартных портов
-        show_tcp => 1, # отображаться все связанное с tcp
-        show_udp => 1, # отображаться все связанное с udp
-        show_local_connections => 0, # отображаться tcp/udp соединения с/на localhost
-        show_listen_tcp => 1, # отображать слушающие tcp сокеты
-        show_listen_udp => 1, # отображать слушающие udp сокеты
-        show_client_tcp => 1, # отображать клиентские tcp сокеты
-        show_client_udp => 1, # отображать клиентские udp сокеты
-        show_open_files => 0, # отображать открытые файлы всех приложений
-    };
-
     # Вершина дерева - нулевой pid, это ядро
     #my $tree = Tree::Simple->new("0", Tree::Simple->ROOT);
 
@@ -407,8 +408,18 @@ sub build_process_tree {
                     if (is_listen_connection($fd->{connection}) ) {
                         my $it_is_whitelisted_connection = $whitelist_listen_tcp_ports->{ $fd->{connection}->{local_port} };
                         
-                        if ($audit_params->{show_listen_tcp}) { 
-                            print connection_pretty_print($fd->{connection}) . "\n";
+                        if ($audit_params->{show_listen_tcp}) {
+                            my $show = 1;
+        
+                            # Мы попали на соединение в белом списке
+                            # И если его отображение запрещено, то скрываем
+                            if ($it_is_whitelisted_connection && ! $audit_params->{show_whitelisted_listen_tcp}) {
+                                $show = 0;
+                            }
+
+                            if ($show) {
+                                print connection_pretty_print($fd->{connection}) . "\n";
+                            }
                         }
                     } else {
                         print connection_pretty_print($fd->{connection}) . "\n" if $audit_params->{show_client_tcp};
@@ -420,7 +431,17 @@ sub build_process_tree {
                         my $it_is_whitelisted_connection = $whitelist_listen_udp_ports->{ $fd->{connection}->{local_port} };
 
                         if ($audit_params->{show_listen_udp}) {
-                            print connection_pretty_print($fd->{connection}) . "\n";
+                            my $show = 1;
+
+                            # Мы попали на соединение в белом списке
+                            # И если его отображение запрещено, то скрываем
+                            if ($it_is_whitelisted_connection && ! $audit_params->{show_whitelisted_listen_udp}) {
+                                $show = 0; 
+                            }    
+    
+                            if ($show) {
+                                print connection_pretty_print($fd->{connection}) . "\n";
+                            }
                         }
                     } else {
                         print connection_pretty_print($fd->{connection}) . "\n" if $audit_params->{show_client_udp};
