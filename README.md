@@ -31,6 +31,8 @@ perl Antidoto.pl
 * Сообщать о процессах, бинарные файлы которых имеют флаги SGID или SUID
 * Уведомлять о клиентских соединениях на удаленные сервера в более чем 5 потоков на 1 процесс на 1 удаленный порт
 
+Также у Antidoto есть режим аудита: perl Antidoto.pl --audit, про который Вы можете прочесть здесь: https://github.com/pavel-odintsov/Antidoto/blob/master/AUDIT.md
+
 Если Antidoto не умеет того, что Вам нужно - вы можете дописать это самостоятельно, документация в файле https://github.com/pavel-odintsov/Antidoto/blob/master/DEVELOPERS.md
 
 Какие системные требования у скрипта?
