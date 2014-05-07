@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Digest::MD5 qw(md5_hex);
 use Data::Dumper;
 
 # yum install -y perl-Tree-Simple
@@ -13,6 +14,7 @@ use Fcntl ":mode";
 
 # Эту функцию стоит параметризировать в будущем через командную строку
 my $audit_params = {
+    compress_forks           => 1,    # отображаем процессы с идентичными параметрами как один
     show_process_information => 1,    # отображать информацию о процессах
     show_tcp => 1,                    # отображаться все связанное с tcp
     show_udp => 1,                    # отображаться все связанное с udp
@@ -376,6 +378,35 @@ sub parse_passwd_file {
     return $users;
 }
 
+# Если у процесса есть множество дочерних форков с аналогичным набором параметров и дескрипторов, то исключаем их из рассмотрения вообще
+sub filter_multiple_forks {
+    my ($server_processes_pids, $sorted_pids) = @_; 
+
+    my @result = ();
+
+    my $prev_item = '';
+    # Уникализация процессов, какой смысл рассматривать 50 форков апача как отдельные?
+    PID_LOOP:
+    for my $pid (@$sorted_pids) {
+        my $status = $server_processes_pids->{$pid};
+
+        # В первый запуск просто положим туда следующий 
+        if ($prev_item) {
+            if (compare_two_hashes_by_list_of_fields($status, $prev_item,
+                ('PPid', 'fast_exe', 'Name', 'fast_uid', 'fast_gid', 'fast_fds_checksumm') ) ) {
+                # Если это клон предыдущего процесса, то просто скачем на следующую итерацию и тем самым исключаем его из обработки 
+                print "Pid $pid is clone\n";
+                next PID_LOOP;
+            }  
+        }    
+
+        push @result, $pid;
+        $prev_item = $status;
+    } 
+
+    return @result;
+}
+
 # Главная рабочая функция режима audit, отображаем всю возможную информацию по процессу
 sub build_process_tree {
     my $server_processes_pids = shift;
@@ -388,6 +419,10 @@ sub build_process_tree {
         $server_processes_pids->{$a}->{PPid} <=>
         $server_processes_pids->{$b}->{PPid}
     } keys %$server_processes_pids;
+
+    if ($audit_params->{compress_forks}) { 
+        @sorted_pids = filter_multiple_forks($server_processes_pids, [@sorted_pids]);
+    }
 
     for my $pid (@sorted_pids) {
         my $status = $server_processes_pids->{$pid};
@@ -672,7 +707,20 @@ sub process_status {
     # Получаем удобный для обработки список дескрипторов (файлов+сокетов) пороцесса
     $status->{fast_fds} = get_process_connections($pid, $inode_to_socket);
 
+    # В режиме аудита нам часто нужна дедупликация процессов, чтобы не показывать 1000 форков
+    if ($audit_mode) {
+        $status->{fast_fds_checksumm} = create_structure_hash($status->{fast_fds});
+    }
+
     return $status;
+}
+
+# Хэшируем развесистую структуру, как в Java, но не особо красиво, конечно =)
+sub create_structure_hash {
+    my $structure = shift;
+
+    # Магия! Но как сделать это красивее у меня мыслей особенно нет    
+    return md5_hex(Dumper($structure));
 }
 
 
@@ -1064,6 +1112,9 @@ sub get_process_connections {
             push @$process_connections, { type => 'file', path => $target }
         }
     }
+
+    # Отсортируем хэндлы по типу для красивой обработки далее
+    @$process_connections = sort { $a->{type} cmp $b->{type} } @$process_connections;
 
     return $process_connections;
 }
@@ -2012,5 +2063,19 @@ sub get_file_size {
     
     return $size;
 }
+
+# Сравниваем два хэша по заданному списку полей
+sub compare_two_hashes_by_list_of_fields {
+    my ($struct1, $struct2, @list_of_fields) = @_;
+
+    for my $field (@list_of_fields) {
+        if ($struct1->{$field} ne $struct2->{$field}) {
+            return '';
+        }    
+    }    
+
+    return 1;
+}
+
 
 1;
