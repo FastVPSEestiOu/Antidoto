@@ -167,12 +167,16 @@ my @running_containers = ();
 if ($is_openvz_node) {
     
     # Если нам передали параметры командной строки, то сканируем переданный параметром контейнер
-    if (scalar @ARGV > 0) {
+    if (scalar @ARGV > 0 && $ARGV[0] =~ /^\d+$/) {
         @running_containers = @ARGV;
     } else {
         @running_containers = get_running_containers_list();
     }
 
+}
+
+if (scalar @ARGV > 0 && $ARGV[0] =~ /^\-\-audit$/) {
+    $audit_mode = 1;
 }
 
 # Список системных пользователей, которые в нормальных условиях не должны иметь свой crontab в /var/spool/cron/crontabs
@@ -220,12 +224,9 @@ my $processes_rules = {
 # Для отдельного сервера вполне посильная задача собрать ключевые суммы
 #    $execute_full_hash_validation = 1; 
 
-if (scalar @ARGV == 0 ) {
-    #print "Start scanning hardware server\n";
-    process_standard_linux_server();
-    #print "Finish scanning hardware server\n";
-}
-
+#print "Start scanning hardware server\n";
+process_standard_linux_server();
+#print "Finish scanning hardware server\n";
 
 # die "Programm terminated for debug purposes\n";
 
@@ -358,6 +359,14 @@ sub parse_passwd_file {
 sub build_process_tree {
     my $server_processes_pids = shift;
 
+    # Эту функцию стоит параметризировать в будущем через командную строку
+    my $params = {
+        #show_local_listens => 1,
+        #show_tcp => 1,
+        #show_udp => 1,
+        show_open_files => 1,
+    };
+
     # Вершина дерева - нулевой pid, это ядро
     #my $tree = Tree::Simple->new("0", Tree::Simple->ROOT);
 
@@ -375,7 +384,9 @@ sub build_process_tree {
                 print connection_pretty_print($fd->{connection}) . "\n";
             } elsif ($fd->{type} eq 'file') {
                 unless( $good_opened_files->{ $fd->{path} } ) {
-                    #print "file: $fd->{path}\n";
+                    if ($params->{show_open_files}) {
+                        print "file: $fd->{path}\n";
+                    }
                 }
             } else {
                 # another connections
@@ -1882,6 +1893,25 @@ sub check_orphan_connections {
     }    
 }
 
+#Aункция определяет, что за соединение ей передано - клиентское или прослушивающее
+sub is_listen_connection {
+    my $connection = shift;
+
+    # С TCP все предельно просто - у него есть состояние соединения
+    if ($connection->{socket_type} eq 'tcp' && $connection->{state} eq 'TCP_LISTEN') {
+        return 1;
+    }
+
+    # А вот у UDP сэтим проблемы, нужно определять по внешним признакам
+    if ($connection->{socket_type} eq 'udp') {
+        if ($connection->{rem_address} eq '0.0.0.0' && $connection->{rem_port} eq '0') {
+            return 1;
+        } 
+    }
+    
+    return '';
+}
+
 # Красивый "принтер" tcp/udp соединений
 sub connection_pretty_print {
     my $connection = shift;
@@ -1894,7 +1924,7 @@ sub connection_pretty_print {
         $state = "state: $connection->{state}";
     }
   
-    if ($connection->{socket_type} eq 'tcp' && $connection->{state} eq 'TCP_LISTEN') {
+    if (is_listen_connection($connection)) {
         # Если это прослушка с хоста, то отобразим ее короче - remote IP тут совершенно не нужен
         $print_string = "type: $connection->{socket_type} listen on $connection->{local_address}:$connection->{local_port}";
     } else {
