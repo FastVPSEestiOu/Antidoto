@@ -1,9 +1,11 @@
 Antidoto
 ========
 
-Linux antimalware and antirootkit tool
+Linux antimalware and antirootkit tool.
 
-Hot to run it:
+Что такое Antidoto? Это диагностический инструмент для эвристического анализа Linux серверов на предмет наличия на них зловредного ПО.
+
+Как запустить:
 ```bash
 wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl -OAntidoto.pl
 perl Antidoto.pl
@@ -14,6 +16,7 @@ perl Antidoto.pl
 * CentOS 5, CentOS 6
 * Debian 5, Debian 6, Debian 7
 * Ubuntu 10.xx, 12.xx, 13.xx, 14.xx
+* Почти любой другой диатрибутив, ничего дистрибутиво-зависимого не используется
 
 Что умеет Antidoto?
 
@@ -31,7 +34,7 @@ perl Antidoto.pl
 * Сообщать о процессах, бинарные файлы которых имеют флаги SGID или SUID
 * Уведомлять о клиентских соединениях на удаленные сервера в более чем 5 потоков на 1 процесс на 1 удаленный порт
 
-Также у Antidoto есть режим аудита: perl Antidoto.pl --audit, про который Вы можете прочесть здесь: https://github.com/pavel-odintsov/Antidoto/blob/master/AUDIT.md
+Также у Antidoto есть режим аудита: perl Antidoto.pl --audit, про который Вы можете прочесть [здесь](https://github.com/pavel-odintsov/Antidoto/blob/master/AUDIT.md)
 
 Если Antidoto не умеет того, что Вам нужно - вы можете дописать это самостоятельно, документация в файле https://github.com/pavel-odintsov/Antidoto/blob/master/DEVELOPERS.md
 
