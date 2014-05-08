@@ -71,9 +71,12 @@ my $whitelist_listen_tcp_ports = {
 };
 
 my $binary_which_can_be_suid = {
-    '/usr/local/ispmgr/bin/billmgr' => 1, # аналогично ispmanager
-    '/usr/local/ispmgr/bin/ispmgr' => 1, # да, ispmanager использует SUID
+    # Набор ПО от ISPSystems очень беспокоится о своих правах и любит SUID
+    '/usr/local/ispmgr/bin/billmgr'  => 1,
+    '/usr/local/ispmgr/bin/ispmgr'   => 1,
+    '/usr/local/ispmgr/bin/vdsmgr'   => 1,
     '/usr/local/ispmgr/sbin/pbackup' => 1,
+
     '/usr/sbin/postdrop' => 1,
     '/usr/sbin/exim4' => 1,
     '/usr/sbin/exim' => 1, # Centos exim
@@ -285,6 +288,7 @@ for my $container (@running_containers) {
     my $server_processes_pids = get_server_processes_detailed( { inode_to_socket => $inode_to_socket, ctid => $container } );
 
     if ($audit_mode) {
+        print "We see on container $container\n";
         build_process_tree($server_processes_pids);
         # skip checks
         next CONTAINERS_LOOP;
@@ -363,16 +367,30 @@ sub parse_passwd_file {
     my $users = {};
     my @lines = read_file_contents_to_list($path);
 
+    PASSWD_READ_LOOP:
     for my $line (@lines) {
-        # ftp:x:14:50:FTP User:/var/ftp:/sbin/nologin 
-        my @data = split /:/, $line;
-  
-        # Дублирования происходить не должно ни при каком условии 
-        if (defined($users->{ $data[0] } ) ) {
-            warn "Duplicate username $data[0] in file $path\n";
+        my $user = {};
+
+        # skip blank lines
+        if (length ($line) == 0) {
+            next;
+        }
+
+        # ftp:x:14:50:FTP User:/var/ftp:/sbin/nologin
+        # news:x:9:13:news:/etc/news: 
+        @$user{'name', 'password', 'uid', 'gid', 'description', 'home', 'shell' } = split /:/, $line;
+ 
+        unless (defined($user->{name}) && defined ($user->{uid}) && defined ($user->{gid})) {
+            warn "Can't parse line: '$line' from passwd file: $path\n";
+            next PASSWD_READ_LOOP;
         }
  
-        $users->{ $data[0] } = {  uid => $data[2], gid => $data[3], description => $data[4], home => $data[5], shell => $data[6] };
+        # Дублирования происходить не должно ни при каком условии 
+        if (defined($users->{ $user->{name } } ) ) {
+            warn "Duplicate username $user->{name} in file $path\n";
+        }
+ 
+        $users->{ $user->{name} } = $user;
     }
 
     return $users;
@@ -395,7 +413,7 @@ sub filter_multiple_forks {
             if (compare_two_hashes_by_list_of_fields($status, $prev_item,
                 ('PPid', 'fast_exe', 'Name', 'fast_uid', 'fast_gid', 'fast_fds_checksumm') ) ) {
                 # Если это клон предыдущего процесса, то просто скачем на следующую итерацию и тем самым исключаем его из обработки 
-                print "Pid $pid is clone\n";
+                print "Pid $pid $status->{Name} is clone\n";
                 next PID_LOOP;
             }  
         }    
@@ -734,7 +752,12 @@ sub check_dirs_with_whitespaces {
         $prefix = "/vz/root/$ctid";
     }    
 
-    for my $temp_folder ("$prefix/tmp", "$prefix/var/tmp") {
+    TEMP_FOLDERS_LOOP:
+    for my $temp_folder ("$prefix/tmp", "$prefix/var/tmp", "$prefix/dev/shm") {
+        unless (-e $temp_folder) {
+            next TEMP_FOLDERS_LOOP;
+        }
+
         my @files = list_all_in_dir($temp_folder);
 
         for my $file (@files) {
@@ -820,8 +843,13 @@ sub print_process_warning {
 
 sub get_printable_process_status {
     my ($pid, $status) = @_;
-    
-    return  "pid: $pid name: $status->{Name} ppid: $status->{PPid} uid: $status->{fast_uid} gid: $status->{fast_gid}\n" .
+   
+    my $container_data = '';
+    if (defined($status->{envID}) && $status->{envID}) {
+        $container_data = "CT: $status->{envID}";
+    }
+ 
+    return  "pid: $pid name: $status->{Name} ppid: $status->{PPid} uid: $status->{fast_uid} gid: $status->{fast_gid} $container_data\n" .
         "exe path: $status->{fast_exe}\n" .
         "cwd: $status->{fast_cwd}\n" .
         "cmdline: $status->{fast_cmdline}"; 
@@ -1800,7 +1828,6 @@ sub parse_tcp_connections {
 
             chomp $line;
   
-            # Формат отличается от UDP парсер, поэтому далаем его ОТДЕЛЬНО 
             #   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
             # 0: 00000000:7275 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 32793258 1 ffff8854feba98c0 99 0 0 10 -1         
  
@@ -1809,7 +1836,8 @@ sub parse_tcp_connections {
                 next;
             }
     
-            # 5977: 33DD242E:0050 859E2459:CF01 01 00000000:00000000 00:1AD7F29ABCA 00000000    33        0 3912372353 1 ffff882be39ec400 179 3 9 10 - 
+            # 5977: 33DD242E:0050 859E2459:CF01 01 00000000:00000000 00:1AD7F29ABCA 00000000    33        0 3912372353 1 ffff882be39ec400 179 3 9 10 -
+            #   445:  00000000:1622 00000000:0000 0A 00000000:00000000 00:00000000 00000000    -1        0 23890959 1 ffff880a5d74c100 99 0 0 10 -1                  
             my @matches = $line =~ m/
                 ^\s*(\d+):\s+                # number of record
                 ([\dA-F]{8,32}):([\dA-F]{4})\s+ # local_address  8 - ipv4, 32 - ipv6
@@ -1818,7 +1846,7 @@ sub parse_tcp_connections {
                 ([\dA-F]{8}):([\dA-F]{8})\s+ # tx_queue, rx_queue
                 (\d+):([\dA-F]{8,11})\s+     # tr and tm->when
                 ([\dA-F]{8})\s+              # retransmit
-                (\d+)\s+                     # uid
+                (\-?\d+)\s+                  # uid, да, тут может быть отрицальное число
                 (\d+)\s+                     # timeout
                 (\d+)\s+                     # inode
                 (.*?)\s*$                    # other stuff
