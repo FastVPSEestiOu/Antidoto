@@ -715,11 +715,30 @@ sub process_status {
         $status->{fast_exe} =~ s#/vz/root/\d+/?#/#g;
     }
 
+    # обрабатываем cmdline
     $status->{fast_cmdline} = read_file_contents("/proc/$pid/cmdline");
 
     if ($status->{fast_cmdline}) {
         # Но /proc/$pid/cmdline интересен тем, что в нем используются разделители \0 и их нужно разделить на пробелы
         $status->{fast_cmdline} =~ s/\0/ /g;
+    }
+
+    # обрабатываем environ
+    my $environ_data = read_file_contents("/proc/$pid/environ");
+
+    if ($environ_data) {
+        $status->{fast_environ} = {};        
+
+        # тут также используются \0 как разделители
+        for my $env_elem (split  /\0/, $environ_data) {
+            my @env_raw = split '=', $env_elem, 2;
+
+            # Внутри может быть всякая бинарная хренотень, так что что реагируем лишь в случае, если нашли знак =
+            if (scalar @env_raw  ==  2) { 
+                $status->{fast_environ}->{$env_raw[0]} = $env_raw[1]; 
+            }    
+        } 
+
     }
 
     # Получаем удобный для обработки список дескрипторов (файлов+сокетов) пороцесса
@@ -885,27 +904,11 @@ sub check_ld_preload  {
         '/usr/local/lib/authbind/libauthbind.so.1' => 1, # Bitrix smtpd.php
     };
 
-    my $path = "/proc/$pid/environ";
-    my $data = read_file_contents($path);
-
-    # replace zero by spaces
-    my $process_environment = {};
-
-    if ($data) {
-
-        for my $env_elem (split  /\0/, $data) {
-            my @env_raw = split '=', $env_elem, 2;
-
-            # Внутри может быть всякая бинарная хренотень, так что что реагируем лишь в случае, если нашли знак =
-            if (scalar @env_raw  ==  2) {
-                $process_environment->{$env_raw[0]} = $env_raw[1]; 
-            }
-        } 
-
+    if ( defined($status->{fast_environ}) && $status->{fast_environ} ) {
         # Тут бывают вполне легальные использования, например: http://manpages.ubuntu.com/manpages/hardy/man1/authbind.1.html
         # Такой "подход" используется в Bitrix (SIC) environment
 
-        my $ld_preload = $process_environment->{'LD_PRELOAD'};
+        my $ld_preload = $status->{fast_environ}->{'LD_PRELOAD'};
         if (defined($ld_preload) && $ld_preload && !defined ($ld_preload_whitelist->{$ld_preload})) {
             print_process_warning($pid, $status, "This process loaded with LD_PRELOAD ($ld_preload) an it may be a VIRUS");
         }
