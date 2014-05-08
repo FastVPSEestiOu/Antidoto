@@ -723,22 +723,25 @@ sub process_status {
         $status->{fast_cmdline} =~ s/\0/ /g;
     }
 
-    # обрабатываем environ
-    my $environ_data = read_file_contents("/proc/$pid/environ");
+    # исключаем из рассмотрения системные процессы ядра
+    if (defined($status->{fast_cmdline}) && $status->{fast_cmdline}) {
+        # обрабатываем environ
+        my $environ_data = read_file_contents("/proc/$pid/environ");
 
-    if ($environ_data) {
-        $status->{fast_environ} = {};        
+        if (defined($environ_data)) {
+            $status->{fast_environ} = {};        
 
-        # тут также используются \0 как разделители
-        for my $env_elem (split  /\0/, $environ_data) {
-            my @env_raw = split '=', $env_elem, 2;
+            # тут также используются \0 как разделители
+            for my $env_elem (split  /\0/, $environ_data) {
+                my @env_raw = split '=', $env_elem, 2;
 
-            # Внутри может быть всякая бинарная хренотень, так что что реагируем лишь в случае, если нашли знак =
-            if (scalar @env_raw  ==  2) { 
-                $status->{fast_environ}->{$env_raw[0]} = $env_raw[1]; 
-            }    
-        } 
+                # Внутри может быть всякая бинарная хренотень, так что что реагируем лишь в случае, если нашли знак =
+                if (scalar @env_raw  ==  2) { 
+                    $status->{fast_environ}->{$env_raw[0]} = $env_raw[1]; 
+                }    
+            } 
 
+        }
     }
 
     # Получаем удобный для обработки список дескрипторов (файлов+сокетов) пороцесса
