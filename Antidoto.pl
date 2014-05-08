@@ -1082,7 +1082,7 @@ sub get_process_connections {
             next;
         }
 
-        if ($target =~ m/^anon_inode:\[(eventpoll|timerfd|eventfd)\]/) {
+        if ($target =~ m/^anon_inode:\[?(?:eventpoll|inotify|timerfd|eventfd)\]?/) {
             next;
         }
 
