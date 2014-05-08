@@ -36,7 +36,7 @@ perl Antidoto.pl
 
 Также у Antidoto есть режим аудита: perl Antidoto.pl --audit, про который Вы можете прочесть [здесь](https://github.com/pavel-odintsov/Antidoto/blob/master/AUDIT.md)
 
-Если Antidoto не умеет того, что Вам нужно - вы можете дописать это самостоятельно, документация в файле https://github.com/pavel-odintsov/Antidoto/blob/master/DEVELOPERS.md
+Если Antidoto не умеет того, что Вам нужно - вы можете дописать это самостоятельно, документация в файле [Developers.md](https://github.com/pavel-odintsov/Antidoto/blob/master/DEVELOPERS.md)
 
 Какие системные требования у скрипта?
 * Наличие Perl интерпретатора, никаких специализированных модулей не требуется
@@ -55,4 +55,6 @@ wget http://www.rfxn.com/downloads/rfxn.hdb -O/var/lib/clamav/rfxn.hdb
 chkconfig clamd on
 ```
 
-Какие аналоги данного ПО существуют? https://github.com/pavel-odintsov/Antidoto/wiki/%D0%90%D0%BD%D0%B0%D0%BB%D0%BE%D0%B3%D0%B8
+* Какие аналоги данного ПО существуют? Вот [такие](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%90%D0%BD%D0%B0%D0%BB%D0%BE%D0%B3%D0%B8)
+* Зачем Вы разработки новую программу, когда на рынке есть множество существующих? [Поэтому](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%9F%D1%80%D0%B8%D1%87%D0%B8%D0%BD%D1%8B-%D1%81%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D1%8F-Antidoto)
+* Какие типы зловредного ПО были проанализированы при написании программы? Вот [такие](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%9E%D1%81%D0%BD%D0%BE%D0%B2%D0%BD%D1%8B%D0%B5-%D1%82%D0%B8%D0%BF%D1%8B-%D0%B7%D0%BB%D0%BE%D0%B2%D1%80%D0%B5%D0%B4%D0%BD%D0%BE%D0%B3%D0%BE-%D0%9F%D0%9E-%D0%BD%D0%B0-Linux-%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%B0%D1%85)
