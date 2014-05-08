@@ -1548,7 +1548,6 @@ sub read_file_contents_to_list {
     my $res = open my $fl, "<", $path;
 
     unless ($res) {
-        warn "Can't read $path\n";
         return ();
     }
 
