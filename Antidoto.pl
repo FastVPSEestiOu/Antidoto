@@ -1122,11 +1122,11 @@ sub get_process_connections {
             next;
         }
 
-        if ($target =~ m/^\[(?:eventpoll|timerfd|eventfd|signalfd)\]$/) {
+        if ($target =~ m/^\[(?:eventpoll|inotify|timerfd|eventfd|signalfd)\]$/) {
             next;
         }
 
-        if ($target =~ m/^anon_inode:\[?(?:eventpoll|inotify|timerfd|eventfd)\]?/) {
+        if ($target =~ m/^anon_inode:\[?(?:eventpoll|inotify|timerfd|eventfd|signalfd)\]?/) {
             next;
         }
 
