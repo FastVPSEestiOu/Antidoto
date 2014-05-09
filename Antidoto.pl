@@ -77,6 +77,7 @@ my $binary_which_can_be_suid = {
     '/usr/local/ispmgr/bin/vdsmgr'   => 1,
     '/usr/local/ispmgr/sbin/pbackup' => 1,
 
+    '/usr/bin/mtr' => 1, # mtr, debian
     '/usr/sbin/postdrop' => 1,
     '/usr/sbin/exim4' => 1,
     '/usr/sbin/exim' => 1, # Centos exim
@@ -1061,6 +1062,10 @@ sub check_for_deleted_exe {
         # Приведем путь в порядок
         # (deleted)/usr/bin/php5-cgi
         $exe_path =~ s#^\s*\(deleted\)\s*##;
+    
+        # Debian 6 Squeeze в этом плане выпендривается и пишет deleted в конце:
+        # /proc/10187/exe -> /usr/bin/php5 (deleted)
+        $exe_path =~ s#\s*\(deleted\)$##;
 
         # Тут бывают случаи: бинарик удален и приложение оставлено работать либо бинарник заменен, а софт работает со старого бинарика
         # Первое - скорее всего малварь, иначе - обновление софта без обновление либ
