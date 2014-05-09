@@ -12,7 +12,7 @@ perl Antidoto.pl
 ```
 If you work from non-root user you should run it with sudo:
 ```bash
-sudo Antidoto.pl
+sudo perl Antidoto.pl
 ```
 
 Where Antidoto can work?
