@@ -10,6 +10,11 @@ How to run:
 wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl -OAntidoto.pl
 perl Antidoto.pl
 ```
+If you work from non-root user you should run it with sudo:
+```bash
+sudo Antidoto.pl
+```
+
 Where Antidoto can work?
 
 * Can work either on OpenVZ VPS and Hardware Node
