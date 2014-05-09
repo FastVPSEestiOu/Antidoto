@@ -419,7 +419,7 @@ sub filter_multiple_forks {
             if (compare_two_hashes_by_list_of_fields($status, $prev_item,
                 ('PPid', 'fast_exe', 'Name', 'fast_uid', 'fast_gid', 'fast_fds_checksumm') ) ) {
                 # Если это клон предыдущего процесса, то просто скачем на следующую итерацию и тем самым исключаем его из обработки 
-                print "Pid $pid $status->{Name} is clone\n";
+                # print "Pid $pid $status->{Name} is clone\n";
                 next PID_LOOP;
             }  
         }    
