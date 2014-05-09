@@ -377,6 +377,11 @@ sub parse_passwd_file {
             next;
         }
 
+        # skip blank lines
+        if ($line =~ m/^\s+$/) {
+            next;
+        }
+
         # ftp:x:14:50:FTP User:/var/ftp:/sbin/nologin
         # news:x:9:13:news:/etc/news: 
         @$user{'name', 'password', 'uid', 'gid', 'description', 'home', 'shell' } = split /:/, $line;
