@@ -793,9 +793,9 @@ sub check_dirs_with_whitespaces {
             if ($file =~ /^\s+$/ or $file =~ /^\.{3,}$/ or $file =~ /^\./) {
                 if (-f "$temp_folder/$file" && get_file_size("$temp_folder/$file") > 0) {
                     if ($ctid) {
-                        warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
+                        warn "We found a file with suspicious name $file in CT $ctid in directory: $temp_folder\n";
                     } else {
-                        warn "We found file with space in name in $file in folder: $temp_folder\n";
+                        warn "We found a file with suspicious name $file in directory: $temp_folder\n";
                     }
                 }
 
@@ -804,9 +804,9 @@ sub check_dirs_with_whitespaces {
                     my @folder_content = list_all_in_dir("$temp_folder/$file");
                     if (scalar @folder_content > 0 ) {
                         if ($ctid) {
-                            warn "We found not blank directory $file (@folder_content) with space in name in folder: $temp_folder in CT $ctid\n";
+                            warn "We found not empty directory $file (@folder_content) which possibly hidden in directory: $temp_folder in CT $ctid\n";
                         } else {
-                            warn "We found not blank directory $file (@folder_content) with space in name in folder: $temp_folder\n";
+                            warn "We found not empty directory $file (@folder_content) which possibly hidden in directory: $temp_folder\n";
                         }
                     }
                 }
@@ -949,7 +949,11 @@ sub check_user_crontabs {
                 @crontab_file_contents = grep { !/^(?:MAILTO|PATH)/ } @crontab_file_contents;
 
                 if (scalar @crontab_file_contents > 0) {
-                    warn "Please check CT $ctid ASAP because it probably has malware in user cron\n";
+                    if ($ctid) {
+                        warn "Please check CT $ctid ASAP because it probably has malware in user cron\n";
+                    } else {
+                        warn "Please check crontab ASAP because it probably has malware in user cron\n";
+                    }
                     warn "Cron content for $cron_file: " . ( join ",", @crontab_file_contents ) . "\n" 
                 }
             }
@@ -1075,7 +1079,7 @@ sub check_for_deleted_exe {
         # Тут бывают случаи: бинарик удален и приложение оставлено работать либо бинарник заменен, а софт работает со старого бинарика
         # Первое - скорее всего малварь, иначе - обновление софта без обновление либ
         unless (-e "$prefix/$exe_path") {
-            print_process_warning($pid, $status, "Execuable file for this process was removed, it's looks like malware");
+            print_process_warning($pid, $status, "Executable file for this process was removed, it's looks like malware");
         }
     }
 }
@@ -1774,7 +1778,7 @@ sub parse_unix_connections {
         # ffff880c35b6cbc0: 0000000C 00000000 00000000 0002 01 10609 /dev/log
         my @matches = $line =~ m/
             ^\s*
-            ([\dA-F]{16}):\s+    # Num
+            ([\dA-F]{8,16}):\s+    # Num
             ([\dA-F]{8})\s+      # RefCount
             (\d{8})\s+           # Protocol
             (\d{8})\s+           # Flags
