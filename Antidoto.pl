@@ -793,9 +793,9 @@ sub check_dirs_with_whitespaces {
             if ($file =~ /^\s+$/ or $file =~ /^\.{3,}$/ or $file =~ /^\./) {
                 if (-f "$temp_folder/$file" && get_file_size("$temp_folder/$file") > 0) {
                     if ($ctid) {
-                        warn "We found file with space in name in CT $ctid $file in folder: $temp_folder\n";
+                        warn "We found a file with suspicious name $file in CT $ctid in directory: $temp_folder\n";
                     } else {
-                        warn "We found file with space in name in $file in folder: $temp_folder\n";
+                        warn "We found a file with suspicious name $file in directory: $temp_folder\n";
                     }
                 }
 
@@ -804,9 +804,9 @@ sub check_dirs_with_whitespaces {
                     my @folder_content = list_all_in_dir("$temp_folder/$file");
                     if (scalar @folder_content > 0 ) {
                         if ($ctid) {
-                            warn "We found not blank directory $file (@folder_content) with space in name in folder: $temp_folder in CT $ctid\n";
+                            warn "We found not empty directory $file (@folder_content) which possibly hidden in directory: $temp_folder in CT $ctid\n";
                         } else {
-                            warn "We found not blank directory $file (@folder_content) with space in name in folder: $temp_folder\n";
+                            warn "We found not empty directory $file (@folder_content) which possibly hidden in directory: $temp_folder\n";
                         }
                     }
                 }
@@ -1079,7 +1079,7 @@ sub check_for_deleted_exe {
         # Тут бывают случаи: бинарик удален и приложение оставлено работать либо бинарник заменен, а софт работает со старого бинарика
         # Первое - скорее всего малварь, иначе - обновление софта без обновление либ
         unless (-e "$prefix/$exe_path") {
-            print_process_warning($pid, $status, "Execuable file for this process was removed, it's looks like malware");
+            print_process_warning($pid, $status, "Executable file for this process was removed, it's looks like malware");
         }
     }
 }
