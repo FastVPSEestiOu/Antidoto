@@ -949,7 +949,11 @@ sub check_user_crontabs {
                 @crontab_file_contents = grep { !/^(?:MAILTO|PATH)/ } @crontab_file_contents;
 
                 if (scalar @crontab_file_contents > 0) {
-                    warn "Please check CT $ctid ASAP because it probably has malware in user cron\n";
+                    if ($ctid) {
+                        warn "Please check CT $ctid ASAP because it probably has malware in user cron\n";
+                    } else {
+                        warn "Please check crontab ASAP because it probably has malware in user cron\n";
+                    }
                     warn "Cron content for $cron_file: " . ( join ",", @crontab_file_contents ) . "\n" 
                 }
             }
@@ -1774,7 +1778,7 @@ sub parse_unix_connections {
         # ffff880c35b6cbc0: 0000000C 00000000 00000000 0002 01 10609 /dev/log
         my @matches = $line =~ m/
             ^\s*
-            ([\dA-F]{16}):\s+    # Num
+            ([\dA-F]{8,16}):\s+    # Num
             ([\dA-F]{8})\s+      # RefCount
             (\d{8})\s+           # Protocol
             (\d{8})\s+           # Flags
