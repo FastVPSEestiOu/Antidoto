@@ -8,6 +8,7 @@ What is Antidoto? It's diagnostic tool for heuristic analysys of Linux machines 
 How to run:
 ```bash
 wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl -OAntidoto.pl
+wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pm -OAntidoto.pm
 perl Antidoto.pl
 ```
 If you work from non-root user you should run it with sudo:
