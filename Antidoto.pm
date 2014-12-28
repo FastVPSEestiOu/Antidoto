@@ -11,8 +11,29 @@ our @EXPORT = qw(is_listen_connection is_loopback_address _hex2ip readlink_deep 
 	parse_udp_connections parse_unix_connections get_init_pid_for_container get_running_containers_list list_all_in_dir list_files_in_dir  read_file_contents_to_list
     read_file_contents get_proc_status get_binary_file_type_by_file_info_output get_architecture_by_file_info_output get_url_last_part get_url_basedir get_process_connections
 all_array_elements_is_equal get_process_uid_or_gid create_structure_hash parse_passwd_file get_server_processes get_ips_for_container md5_file get_file_size compare_two_hashes_by_list_of_fields
-connection_pretty_print in_array);
+connection_pretty_print in_array build_inode_to_socket_lookup_table);
 
+# Построить хэш вида: inode-соединение для быстрого разрешения соединения по номеру inode
+sub build_inode_to_socket_lookup_table {
+    my $connections = shift;
+
+    my $inode_to_socket = {};
+
+    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
+    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
+    for my $proto ('tcp', 'udp', 'unix') {
+        for my $item (@{ $connections->{$proto} })  {
+            if ($item->{inode} == 0) {
+                # Да, такое бывает, для многих соединений inode == 0
+                push @{ $inode_to_socket->{ 'orphan' } }, { type => $proto, connection => $item };
+            } else {
+                $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
+            }
+        }    
+    }    
+
+    return $inode_to_socket;
+}
 
 
 # Красивый "принтер" tcp/udp соединений

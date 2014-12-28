@@ -32,7 +32,7 @@ my $audit_params = {
 };  
 
 # Также добавить белый список прослушиваемых портов и врубать анализ по нему в особо суровых случаях
-my $blacklist_listen_ports = {
+my $blacklist_listen_port = {
     1080  => 'socks proxy',
     3128  => 'http proxy',
     6666  => 'irc',
@@ -1247,28 +1247,6 @@ sub check_cwd {
     }
 }
 
-
-# Построить хэш вида: inode-соединение для быстрого разрешения соединения по номеру inode
-sub build_inode_to_socket_lookup_table {
-    my $connections = shift;
-
-    my $inode_to_socket = {};
-
-    # В этом подходе есть еще большая проблема, дублирование inode внутри контейнеров нету, но
-    # есть куча "потерянных" соединений, у которых владелец inode = 0, с ними нужно что-то делать
-    for my $proto ('tcp', 'udp', 'unix') {
-        for my $item (@{ $connections->{$proto} })  {
-            if ($item->{inode} == 0) {
-                # Да, такое бывает, для многих соединений inode == 0
-                push @{ $inode_to_socket->{ 'orphan' } }, { type => $proto, connection => $item };
-            } else {
-                $inode_to_socket->{ $proto }->{ $item->{inode } } = $item;
-            }
-        }    
-    }    
-
-    return $inode_to_socket;
-}
 
 # Отображаем все "потерянные" соединения для определенного пространства имен
 # Это нестандартный валидатор, он запускается отдельно от прочих
