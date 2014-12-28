@@ -16,6 +16,13 @@ If you work from non-root user you should run it with sudo:
 sudo perl Antidoto.pl
 ```
 
+If you want to use only linux_network_activity_tracker do following:
+```bash
+wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pm -OAntidoto.pm
+wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/linux_network_activity_tracker.pl -Olinux_network_activity_tracker.pl
+perl linux_network_activity_tracker.pl
+```
+
 Where Antidoto can work?
 
 * Can work either on OpenVZ VPS and Hardware Node
