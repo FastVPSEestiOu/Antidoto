@@ -52,7 +52,7 @@ for my $container (@running_containers) {
                 	#}    
 
                 	if (my $port_description = $blacklist_listen_ports->{ $connection->{local_port} }) {
-                		print "Container's $container process $pid listens DANGER $connection->{socket_type} port $connection->{local_port}";
+                		print "Container's $container process $pid listens DANGER $connection->{socket_type} port $connection->{local_port}i\n";
                 	}
             	} else {
                 	# Это может быть внутренее соединение, которое не интересно нам при анализе
@@ -62,7 +62,7 @@ for my $container (@running_containers) {
 
                 	# client socket
                 	if (my $port_description = $blacklist_listen_ports->{ $connection->{rem_port} }) {
-                		print "Container's $container process $pid connected to the DANGER $connection->{socket_type} port $connection->{rem_port} to the server $connection->{rem_address}";
+                		print "Container's $container process $pid connected to the DANGER $connection->{socket_type} port $connection->{rem_port} to the server $connection->{rem_address}\n";
                 	}
             	}
         	}
