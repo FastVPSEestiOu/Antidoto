@@ -32,7 +32,7 @@ my $audit_params = {
 };  
 
 # Также добавить белый список прослушиваемых портов и врубать анализ по нему в особо суровых случаях
-my $blacklist_listen_port = {
+my $blacklist_listen_ports = {
     1080  => 'socks proxy',
     3128  => 'http proxy',
     6666  => 'irc',

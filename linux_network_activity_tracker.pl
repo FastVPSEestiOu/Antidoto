@@ -24,7 +24,6 @@ for my $container (@running_containers) {
         next;
     }
 
-
     my @ct_processes_pids = read_file_contents_to_list("/proc/vz/fairsched/$container/tasks");
     my $container_init_process_pid_on_node = get_init_pid_for_container(\@ct_processes_pids);
     my $container_connections = read_all_namespace_connections($container_init_process_pid_on_node);
