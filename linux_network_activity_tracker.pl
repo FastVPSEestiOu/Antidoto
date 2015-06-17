@@ -13,6 +13,7 @@ my $blacklist_listen_ports = {
     9050  => 'tor',
     # botnet melinda & bill gates https://github.com/ValdikSS/billgates-botnet-tracker/blob/master/gates/gates.py
     36008 => 'botnet melinda & bill gates',
+    4443 => '/tmp/.estbuild/lib/ld-linux.so.2 rooted',
 };
 
 my @running_containers = get_running_containers_list();
