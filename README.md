@@ -7,8 +7,8 @@ What is Antidoto? It's diagnostic tool for heuristic analysys of Linux machines 
 
 How to run:
 ```bash
-wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pl -OAntidoto.pl
-wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pm -OAntidoto.pm
+wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/Antidoto.pl -OAntidoto.pl
+wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/Antidoto.pm -OAntidoto.pm
 perl Antidoto.pl
 ```
 If you work from non-root user you should run it with sudo:
@@ -18,8 +18,8 @@ sudo perl Antidoto.pl
 
 If you want to use only linux_network_activity_tracker do following:
 ```bash
-wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/Antidoto.pm -OAntidoto.pm
-wget --no-check-certificate https://raw.githubusercontent.com/pavel-odintsov/Antidoto/master/linux_network_activity_tracker.pl -Olinux_network_activity_tracker.pl
+wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/Antidoto.pm -OAntidoto.pm
+wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/linux_network_activity_tracker.pl -Olinux_network_activity_tracker.pl
 perl linux_network_activity_tracker.pl
 ```
 
