@@ -17,12 +17,12 @@ wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Ant
 wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/Antidoto.pm -OAntidoto.pm
 perl Antidoto.pl
 ```
-If you work from non-root user you should run it with sudo:
+If you work as non-root user, you should run it with sudo:
 ```bash
 sudo perl Antidoto.pl
 ```
 
-If you want to use only linux_network_activity_tracker do following:
+If you want to use only linux_network_activity_tracker, do the following:
 ```bash
 wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/Antidoto.pm -OAntidoto.pm
 wget --no-check-certificate https://raw.githubusercontent.com/FastVPSEestiOu/Antidoto/master/linux_network_activity_tracker.pl -Olinux_network_activity_tracker.pl
@@ -45,22 +45,22 @@ What can Antidoto?
 * Notify about absent files with last login information (/var/log/btmp, /var/log/wtmp)
 * Notify about non blank crontab files for apache and www-data users (/var/spool/cron/crontabs, /var/spool/cron)
 * Notify about non blank files and folders with strange names (spaces, dots) in publiс writable folders (/tmp, /var/tmp) 
-* Notify about processes launched from current directory (./programm_name) from non root user
-* Notify about proceses with absent executable file (which rempved after programm launch)
+* Notify about processes launched from current directory (./programm_name) by non root user
+* Notify about proceses with absent executable file (which was removed after program launch)
 * Detect very popular malware using direct md5 executable file hashing in memory
 * Notify about danger udp and tcp ports listening by software (irc, proxy, botnet controllers)
 * Notify about tcp and udp  connections to danger remote ports (irc, botnet controllers)
 * Notify about processes with architecture different from the server (for example: 32 bit software running on 64 bit host)
 * Notify about processes with statically linked executable files (with integrated libs)
-* Notify about processes which was launched with using LD_PRELOAD 
+* Notify about processes that were launched with LD_PRELOAD environment variable set
 * Notify about processes with executable files with SUID, SGID bits
-* Notify about connections to remote servers with abnormal number if threads (5 or more per process)
+* Notify about connections to remote servers with abnormal number of threads (5 or more per process)
 
 Antidoto also has audit mode, which works like netstat + lsof + ss and ps, you can read more [here](https://github.com/pavel-odintsov/Antidoto/blob/master/AUDIT.md).
 
 If you know Perl and want to develop new features for Antidoto, please read [developer manual](https://github.com/pavel-odintsov/Antidoto/blob/master/DEVELOPERS.md)
 
-What system requirements of Antidoto?
+What are system requirements of Antidoto?
 * Perl interpreter with standard modules
 * Standard system tools: cat, file, md5sum
 * For working on OpenVZ HWN you need vzlist tool
@@ -78,5 +78,5 @@ chkconfig clamd on
 ```
 
 * Do you have any analogues? [Yes](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%90%D0%BD%D0%B0%D0%BB%D0%BE%D0%B3%D0%B8)
-* What reason of creating new software instead improving existing? [Justification](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%9F%D1%80%D0%B8%D1%87%D0%B8%D0%BD%D1%8B-%D1%81%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D1%8F-Antidoto)
-* What malware types was analzed for creating Antodoto ruleset? [List of analyzed malware](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%9E%D1%81%D0%BD%D0%BE%D0%B2%D0%BD%D1%8B%D0%B5-%D1%82%D0%B8%D0%BF%D1%8B-%D0%B7%D0%BB%D0%BE%D0%B2%D1%80%D0%B5%D0%B4%D0%BD%D0%BE%D0%B3%D0%BE-%D0%9F%D0%9E-%D0%BD%D0%B0-Linux-%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%B0%D1%85)
+* What is the reason of creating new software instead improving existing? [Justification](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%9F%D1%80%D0%B8%D1%87%D0%B8%D0%BD%D1%8B-%D1%81%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D1%8F-Antidoto)
+* What malware types were analzed for creating Antodoto ruleset? [List of analyzed malware](https://github.com/pavel-odintsov/Antidoto/wiki/%D0%9E%D1%81%D0%BD%D0%BE%D0%B2%D0%BD%D1%8B%D0%B5-%D1%82%D0%B8%D0%BF%D1%8B-%D0%B7%D0%BB%D0%BE%D0%B2%D1%80%D0%B5%D0%B4%D0%BD%D0%BE%D0%B3%D0%BE-%D0%9F%D0%9E-%D0%BD%D0%B0-Linux-%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%B0%D1%85)

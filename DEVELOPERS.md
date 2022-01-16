@@ -1,7 +1,7 @@
 Функции для решения тех или иных задач поиска зловредного ПО:
 
 * parse_passwd_file: парсер /etc/passwd файлов
-* get_server_processes: получение всех процессов запущенных на VPS или сервере
+* get_server_processes: получение всех процессов, запущенных на VPS или сервере
 * get_ips_for_container: получение всех IP для контейнера OpenVZ
 * get_process_uid_or_gid: получение uid/gid процесса
 * md5_file: получение ключевой суммы
